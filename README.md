@@ -12,6 +12,60 @@ A Ruby script that converts Markdown files to email-ready HTML and plain text, w
 - 👀 **Preview mode** - Preview generated emails in your browser before sending
 - 📦 **Easy installation** - One-command install via curl
 
+## Prerequisites
+
+Before installing mdtosendy, you'll need:
+
+### Ruby and Nokogiri
+
+mdtosendy requires Ruby with the `nokogiri` gem installed for HTML parsing and manipulation.
+
+**Install nokogiri:**
+```bash
+gem install nokogiri
+```
+
+If you encounter installation issues, you may need to install system dependencies first. On macOS with Homebrew:
+```bash
+brew install libxml2
+gem install nokogiri
+```
+
+### Markdown Processor
+
+mdtosendy requires a Markdown processor to convert Markdown to HTML. The recommended processor is **[Apex](https://github.com/ApexMarkdown/apex)**.
+
+**Install Apex:**
+```bash
+# Using Homebrew (macOS):
+brew install apex
+
+# Or clone from GitHub:
+git clone https://github.com/ApexMarkdown/apex.git
+# Then add the apex binary to your PATH
+```
+
+**Alternative Markdown processors:**
+
+- **[Kramdown](https://kramdown.gettalong.org/)** - Supports IALs (Inline Attribute Lists) for creating buttons:
+  ```bash
+  gem install kramdown
+  ```
+
+- **[MultiMarkdown](https://fletcher.github.io/Multimarkdown-6/)** - Supports image attributes:
+  ```bash
+  # Using Homebrew (macOS):
+  brew install multimarkdown
+
+  # Or download from: https://github.com/fletcher/MultiMarkdown-6/releases
+  ```
+
+Configure your preferred processor in `~/.config/mdtosendy/config.yml`:
+```yaml
+markdown:
+  processor: apex  # or kramdown, multimarkdown, etc.
+```
+
 ## Installation
 
 ### Quick Install (Recommended)
@@ -168,7 +222,7 @@ Located at `~/.config/mdtosendy/config.yml`, organized into sections:
 - **campaign**: Tracking settings, timezone
 - **template**: Header image, signature, URLs, and template variables
 - **paths**: File paths for template and styles
-- **markdown**: Markdown processor to use (default: `apex`). See [Markdown Processors](#markdown-processors) for options.
+- **markdown**: Markdown processor to use (default: `apex`). See [Prerequisites](#prerequisites) for installation options.
 
 ### Styles File (`styles.css`)
 
@@ -222,28 +276,11 @@ See the example files for a complete list of available variables.
 
 ## Requirements
 
+See the [Prerequisites](#prerequisites) section above for detailed installation instructions. In summary:
+
 - Ruby (with `nokogiri` gem installed)
-- A Markdown processor (see [Markdown Processors](#markdown-processors) below)
+- A Markdown processor (Apex recommended, or Kramdown/MultiMarkdown)
 - Git (for installation via bootstrap script)
-
-Install the required gem:
-```bash
-gem install nokogiri
-```
-
-### Markdown Processors
-
-The script supports any Markdown processor that can be called from the command line. The recommended processor is **[Apex](https://github.com/ApexMarkdown/apex)**, which is the default.
-
-**Alternative processors:**
-- **[Kramdown](https://kramdown.gettalong.org/)** - Supports IALs (Inline Attribute Lists) for creating buttons, e.g., `[Button Text](url){: .button}`
-- **[MultiMarkdown](https://fletcher.github.io/Multimarkdown-6/)** - Supports image attributes for styling images
-
-Configure your preferred processor in `~/.config/mdtosendy/config.yml`:
-```yaml
-markdown:
-  processor: apex  # or kramdown, multimarkdown, etc.
-```
 
 ## File Locations
 
