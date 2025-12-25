@@ -1,0 +1,798 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'nokogiri'
+require 'open3'
+require 'yaml'
+require 'uri'
+require 'net/http'
+require 'net/https'
+require 'openssl'
+require 'time'
+
+# Simple CSS parser for converting CSS rules to inline styles
+# Handles basic selectors and properties for email styling
+class CSSParser
+  def initialize(css_content)
+    @rules = parse_css(css_content)
+  end
+
+  def get_style(selector)
+    @rules[selector] || {}
+  end
+
+  def style_string(selector)
+    styles = get_style(selector)
+    return '' if styles.empty?
+
+    styles.map { |prop, value| "#{prop}: #{value}" }.join('; ')
+  end
+
+  private
+
+  def parse_css(css_content)
+    rules = {}
+
+    # Remove comments
+    css_content = css_content.gsub(%r{/\*.*?\*/}m, '')
+
+    # Split by closing braces to get individual rules
+    css_content.scan(/([^{]+)\{([^}]+)\}/m) do |selectors, declarations|
+      selectors.strip.split(',').each do |selector|
+        selector = selector.strip
+        next if selector.empty?
+
+        # Parse declarations
+        declarations.scan(/([^:;]+):\s*([^;]+)/) do |prop, value|
+          prop = prop.strip
+          value = value.strip
+          next if prop.empty? || value.empty?
+
+          # Normalize property names (convert kebab-case to camelCase for CSS, but keep as-is for inline)
+          # For inline styles, we keep kebab-case
+          rules[selector] ||= {}
+          rules[selector][prop] = value
+        end
+      end
+    end
+
+    rules
+  end
+end
+
+# Get config directory
+def config_dir
+  File.join(Dir.home, '.config', 'mdtosendy')
+end
+
+# Load configuration from config.yml
+def load_config
+  config_file = File.join(config_dir, 'config.yml')
+
+  unless File.exist?(config_file)
+    warn "Error: Configuration file not found: #{config_file}"
+    warn "Please create #{config_file} with your configuration."
+    warn 'You can use config.example.yml as a template.'
+    exit 1
+  end
+
+  YAML.safe_load(File.read(config_file))
+rescue StandardError => e
+  warn "Error loading configuration: #{e.message}"
+  exit 1
+end
+
+# Load CSS styles from styles.css
+def load_styles
+  config = load_config
+  styles_file = File.join(config_dir, config.dig('paths', 'styles_file') || 'styles.css')
+
+  unless File.exist?(styles_file)
+    warn "Error: Styles file not found: #{styles_file}"
+    warn "Please create #{styles_file} with your styles."
+    warn 'You can use styles.example.css as a template.'
+    exit 1
+  end
+
+  CSSParser.new(File.read(styles_file))
+rescue StandardError => e
+  warn "Error loading styles: #{e.message}"
+  exit 1
+end
+
+# Convert Markdown to HTML
+def markdown_to_html(markdown_content, processor = 'apex')
+  stdout, stderr, status = Open3.capture3(processor, stdin_data: markdown_content)
+
+  unless status.success?
+    warn "Error converting Markdown: #{stderr}"
+    exit 1
+  end
+
+  stdout
+end
+
+# Apply inline styles to HTML elements for email compatibility
+def apply_email_styles(html_content, styles)
+  doc = Nokogiri::HTML::DocumentFragment.parse(html_content)
+
+  # Helper to merge styles
+  def merge_styles(existing, new_styles)
+    existing_hash = existing ? existing.split(';').map { |s| s.split(':').map(&:strip) }.to_h : {}
+    new_hash = new_styles.is_a?(String) ? {} : new_styles
+    merged = existing_hash.merge(new_hash)
+    merged.map { |k, v| "#{k}: #{v}" }.join('; ')
+  end
+
+  # Style h1 elements
+  doc.css('h1').reverse.each do |h1|
+    styles.get_style('h1')
+    h1['style'] = styles.style_string('h1')
+
+    td_style = styles.get_style('h1 td')
+    td_padding = td_style['padding'] || '0 0 20px 0'
+
+    table_html = <<~HTML
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+        <tr>
+          <td style="padding: #{td_padding};">
+            #{h1.to_html}
+          </td>
+        </tr>
+      </table>
+    HTML
+
+    h1.replace(table_html)
+  end
+
+  # Style h2 elements
+  doc.css('h2').reverse.each do |h2|
+    h2['style'] = styles.style_string('h2')
+
+    td_style = styles.get_style('h2 td')
+    td_padding = td_style['padding'] || '0 0 20px 0'
+
+    table_html = <<~HTML
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+        <tr>
+          <td style="padding: #{td_padding};">
+            #{h2.to_html}
+          </td>
+        </tr>
+      </table>
+    HTML
+
+    h2.replace(table_html)
+  end
+
+  # Style h3 elements
+  doc.css('h3').reverse.each do |h3|
+    h3['style'] = styles.style_string('h3')
+
+    td_style = styles.get_style('h3 td')
+    td_padding = td_style['padding'] || '0 0 15px 0'
+
+    table_html = <<~HTML
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+        <tr>
+          <td style="padding: #{td_padding};">
+            #{h3.to_html}
+          </td>
+        </tr>
+      </table>
+    HTML
+
+    h3.replace(table_html)
+  end
+
+  # Style paragraph elements
+  doc.css('p').reverse.each do |p|
+    # Skip if already inside a styled td
+    next if p.ancestors.any? { |a| a.name == 'td' && a['style']&.include?('padding') }
+
+    td_style = styles.get_style('p td')
+    td_padding = td_style['padding'] || '0 0 25px 0'
+    p_style = styles.style_string('p')
+
+    table_html = <<~HTML
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+        <tr>
+          <td style="padding: #{td_padding}; #{p_style};">
+            #{p.inner_html}
+          </td>
+        </tr>
+      </table>
+    HTML
+
+    p.replace(table_html)
+  end
+
+  # Convert lists to table format
+  doc.css('ul, ol').reverse.each do |list|
+    # Skip if already inside a styled td
+    next if list.ancestors.any? { |a| a.name == 'td' && a['style']&.include?('padding') }
+
+    list_items = list.css('li')
+    is_ordered = list.name == 'ol'
+
+    styles.get_style('li.bullet')
+    styles.get_style('li.content')
+    list_td_style = styles.get_style('ul td') || styles.get_style('ol td')
+    list_td_padding = list_td_style['padding'] || '0 0 10px 0'
+    list_style = styles.style_string('ul') || styles.style_string('ol')
+
+    # Build table rows for each list item
+    rows_html = list_items.each_with_index.map do |li, index|
+      bullet = is_ordered ? "#{index + 1}." : '•'
+      bullet_style_str = styles.style_string('li.bullet')
+      content_style_str = styles.style_string('li.content')
+
+      <<~HTML
+        <tr>
+          <td style="padding: 0 0 8px 0; vertical-align: top; width: 20px; #{bullet_style_str};">
+            <span style="color: #333333;">#{bullet}</span>
+          </td>
+          <td style="padding: 0 0 8px 0; #{content_style_str};">
+            #{li.inner_html}
+          </td>
+        </tr>
+      HTML
+    end.join("\n")
+
+    # Wrap the entire list in table structure
+    table_html = <<~HTML
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+        <tr>
+          <td style="padding: #{list_td_padding}; #{list_style};">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+              #{rows_html}
+            </table>
+          </td>
+        </tr>
+      </table>
+    HTML
+
+    list.replace(table_html)
+  end
+
+  # Convert links with .button class to styled buttons
+  doc.css('a.button').reverse.each do |a|
+    href = a['href'] || '#'
+    link_text = a.inner_text || a.text || ''
+
+    # Escape HTML entities
+    escaped_href = href.gsub('&', '&amp;').gsub('<', '&lt;').gsub('>', '&gt;').gsub('"', '&quot;')
+    escaped_text = link_text.gsub('&', '&amp;').gsub('<', '&lt;').gsub('>', '&gt;')
+
+    button_style = styles.style_string('a.button')
+    button_td_style = styles.get_style('a.button td')
+    button_td_style['background'] || button_td_style['background-color'] || '#FF6B1A'
+    button_td_style_str = styles.style_string('a.button td')
+    wrapper_padding = styles.get_style('a.button-wrapper')['padding'] || '0 0 20px 0'
+    fallback_style = styles.style_string('a.button-fallback')
+    fallback_link_style = styles.style_string('a.button-fallback a')
+
+    button_html = <<~HTML
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+        <tr>
+          <td align="center" style="padding: #{wrapper_padding};">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td align="center" style="#{button_td_style_str};">
+                  <a href="#{escaped_href}" style="#{button_style};">
+                    <span style="#{styles.style_string('a.button span')};">
+                      #{escaped_text}
+                    </span>
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="#{fallback_style};">
+            <p style="margin: 0; padding: 0;">Or paste this link into your browser: <a
+                    href="#{escaped_href}" style="#{fallback_link_style};">
+                    #{escaped_href}</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    HTML
+
+    a.replace(button_html)
+  end
+
+  # Style regular link elements (not buttons)
+  doc.css('a:not(.button)').each do |a|
+    existing_style = a['style'] || ''
+    link_style = styles.style_string('a')
+    a['style'] = "#{existing_style}; #{link_style}".gsub(/^; /, '').gsub(/;\s*;/, ';')
+  end
+
+  # Re-parse after table replacements
+  html_string = doc.to_html
+  doc = Nokogiri::HTML::DocumentFragment.parse(html_string)
+
+  # Style images
+  doc.css('img').reverse.each do |img|
+    existing_style = img['style'] || ''
+    base_img_style = styles.style_string('img')
+
+    has_float_left = existing_style.include?('float: left') || existing_style.include?('float:left')
+    has_float_right = existing_style.include?('float: right') || existing_style.include?('float:right')
+
+    if has_float_left || has_float_right
+      cleaned_style = existing_style
+                      .gsub(/float\s*:\s*(left|right)\s*;?/i, '')
+                      .gsub(/;\s*;/, ';')
+                      .gsub(/^\s*;\s*/, '')
+                      .gsub(/;\s*$/, '')
+
+      float_direction = has_float_left ? 'left' : 'right'
+      float_style = styles.style_string("img.float-#{float_direction}")
+      img_style = "#{cleaned_style}; #{base_img_style}; #{float_style}".gsub(/^; /, '').gsub(/;\s*;/, ';')
+      img['style'] = img_style
+
+      margin_style = float_direction == 'left' ? 'margin: 0 1em 1em 0;' : 'margin: 0 0 1em 1em;'
+      table_html = <<~HTML
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="#{float_direction}" style="float: #{float_direction}; max-width: 30%; #{margin_style}">
+          <tr>
+            <td>
+              #{img.to_html}
+            </td>
+          </tr>
+        </table>
+      HTML
+      img.replace(table_html)
+    else
+      width = img['width']&.to_i || 0
+      full_width_style = styles.style_string('img.full-width')
+
+      if width >= 500 || img['width'].nil?
+        img['style'] = "#{existing_style}; #{base_img_style}; #{full_width_style}".gsub(/^; /, '').gsub(/;\s*;/, ';')
+        table_html = <<~HTML
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr>
+              <td align="center" style="padding: 0;">
+                #{img.to_html}
+              </td>
+            </tr>
+          </table>
+        HTML
+        img.replace(table_html)
+      else
+        img['style'] = "#{existing_style}; #{base_img_style}; #{full_width_style}".gsub(/^; /, '').gsub(/;\s*;/, ';')
+      end
+    end
+  end
+
+  # Style strong/bold elements
+  doc.css('strong, b').each do |strong|
+    existing_style = strong['style'] || ''
+    strong_style = styles.style_string('strong') || styles.style_string('b')
+    strong['style'] = "#{existing_style}; #{strong_style}".gsub(/^; /, '').gsub(/;\s*;/, ';')
+  end
+
+  # Style emphasis/italic elements
+  doc.css('em, i').each do |em|
+    existing_style = em['style'] || ''
+    em_style = styles.style_string('em') || styles.style_string('i')
+    em['style'] = "#{existing_style}; #{em_style}".gsub(/^; /, '').gsub(/;\s*;/, ';')
+  end
+
+  doc.to_html
+end
+
+# Convert Markdown to plain text
+def markdown_to_plain_text(markdown_content)
+  plain_text = markdown_content.gsub(/\{[^}]*\}/, '')
+  plain_text = plain_text.gsub(/\[([^\]]+)\]\(([^)]+)\)/) do
+    link_text = Regexp.last_match(1)
+    url = Regexp.last_match(2)
+    "#{link_text} (#{url})"
+  end
+  plain_text = plain_text.gsub(/\n{3,}/, "\n\n")
+  plain_text.strip
+end
+
+# Validate configuration
+def validate_config(config)
+  errors = []
+  warnings = []
+
+  # Check required Sendy config (only if creating campaigns)
+  sendy_config = config['sendy'] || {}
+  if sendy_config['api_url'].nil? || sendy_config['api_url'].empty?
+    warnings << 'sendy.api_url is not set (required for campaign creation)'
+  end
+  if sendy_config['api_key'].nil? || sendy_config['api_key'].empty?
+    warnings << 'sendy.api_key is not set (required for campaign creation)'
+  end
+  if sendy_config['brand_id'].nil? || sendy_config['brand_id'].empty?
+    warnings << 'sendy.brand_id is not set (required for campaign creation)'
+  end
+  if sendy_config['list_ids'].nil? || sendy_config['list_ids'].empty?
+    warnings << 'sendy.list_ids is not set (required for campaign creation)'
+  end
+
+  # Check email config
+  email_config = config['email'] || {}
+  warnings << 'email.from_name is not set' if email_config['from_name'].nil? || email_config['from_name'].empty?
+  warnings << 'email.from_email is not set' if email_config['from_email'].nil? || email_config['from_email'].empty?
+  warnings << 'email.reply_to is not set' if email_config['reply_to'].nil? || email_config['reply_to'].empty?
+
+  # Check template config
+  template_config = config['template'] || {}
+  if template_config['header_image_url'].nil? || template_config['header_image_url'].empty?
+    warnings << 'template.header_image_url is not set'
+  end
+
+  # Check paths
+  paths_config = config['paths'] || {}
+  if paths_config['template_file'].nil? || paths_config['template_file'].empty?
+    errors << 'paths.template_file is not set'
+  end
+  errors << 'paths.styles_file is not set' if paths_config['styles_file'].nil? || paths_config['styles_file'].empty?
+
+  { errors: errors, warnings: warnings }
+end
+
+# Validate styles
+def validate_styles(styles)
+  errors = []
+  warnings = []
+
+  # Check for essential styles
+  required_styles = %w[body h1 h2 h3 p a]
+  required_styles.each do |selector|
+    if styles.get_style(selector).empty?
+      warnings << "CSS rule for '#{selector}' is missing (recommended for proper styling)"
+    end
+  end
+
+  # Check for button styles if buttons are used
+  if styles.get_style('a.button').empty?
+    warnings << "CSS rule for 'a.button' is missing (required if using button links)"
+  end
+
+  { errors: errors, warnings: warnings }
+end
+
+# Validate files exist
+def validate_files(config)
+  errors = []
+
+  # Check template file (in config directory)
+  template_file = File.join(config_dir, config.dig('paths', 'template_file') || 'email-template.html')
+  errors << "Template file not found: #{template_file}" unless File.exist?(template_file)
+
+  # Check styles file (in config directory)
+  styles_file = File.join(config_dir, config.dig('paths', 'styles_file') || 'styles.css')
+  errors << "Styles file not found: #{styles_file}" unless File.exist?(styles_file)
+
+  { errors: errors, warnings: [] }
+end
+
+# Run all validations
+def run_validation(config, styles)
+  puts "Validating configuration and styles...\n\n"
+
+  all_errors = []
+  all_warnings = []
+
+  # Validate config
+  config_result = validate_config(config)
+  all_errors.concat(config_result[:errors])
+  all_warnings.concat(config_result[:warnings])
+
+  # Validate styles
+  styles_result = validate_styles(styles)
+  all_errors.concat(styles_result[:errors])
+  all_warnings.concat(styles_result[:warnings])
+
+  # Validate files
+  files_result = validate_files(config)
+  all_errors.concat(files_result[:errors])
+  all_warnings.concat(files_result[:warnings])
+
+  # Report results
+  if all_errors.empty? && all_warnings.empty?
+    puts "✓ Validation passed! All checks successful.\n\n"
+    return true
+  end
+
+  unless all_errors.empty?
+    puts "✗ Errors found:\n"
+    all_errors.each { |error| puts "  - #{error}" }
+    puts "\n"
+  end
+
+  unless all_warnings.empty?
+    puts "⚠ Warnings:\n"
+    all_warnings.each { |warning| puts "  - #{warning}" }
+    puts "\n"
+  end
+
+  all_errors.empty?
+end
+
+# Replace template variables
+def replace_template_variables(template, config, styles, title, content)
+  template_vars = {
+    'TITLE' => title,
+    'CONTENT' => content,
+    'BODY_STYLE' => styles.style_string('body'),
+    'WRAPPER_STYLE' => styles.style_string('.wrapper'),
+    'CONTENT_WRAPPER_STYLE' => styles.style_string('.content-wrapper'),
+    'FONT_FAMILY' => styles.get_style('body')['font-family'] || 'Avenir, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    'HEADER_IMAGE_URL' => config.dig('template', 'header_image_url') || '',
+    'HEADER_IMAGE_ALT' => config.dig('template', 'header_image_alt') || 'Email Header',
+    'HEADER_IMAGE_WIDTH' => (config.dig('template', 'header_image_width') || 600).to_s,
+    'HEADER_IMAGE_HEIGHT' => (config.dig('template', 'header_image_height') || 185).to_s,
+    'SIGNATURE_IMAGE_URL' => config.dig('template', 'signature_image_url') || '',
+    'SIGNATURE_IMAGE_ALT' => config.dig('template', 'signature_image_alt') || 'Signature',
+    'SIGNATURE_IMAGE_WIDTH' => (config.dig('template', 'signature_image_width') || 98).to_s,
+    'SIGNATURE_IMAGE_HEIGHT' => (config.dig('template', 'signature_image_height') || 98).to_s,
+    'SIGNATURE_TEXT' => config.dig('template', 'signature_text') || '-Brett',
+    'SIGNATURE_STYLE' => styles.style_string('.signature') || styles.style_string('p'),
+    'FOOTER_STYLE' => styles.style_string('.footer'),
+    'FOOTER_TEXT_STYLE' => styles.style_string('.footer p')
+  }
+
+  result = template.dup
+  template_vars.each do |key, value|
+    result.gsub!("{{#{key}}}", value.to_s)
+  end
+
+  result
+end
+
+# Preview HTML in browser
+def preview_html(html_file)
+  if File.exist?(html_file)
+    puts "Opening preview in browser: #{html_file}"
+    system('open', html_file)
+  else
+    warn "Error: HTML file not found: #{html_file}"
+    exit 1
+  end
+end
+
+# Parse command-line arguments
+def parse_args
+  args = ARGV.dup
+  flags = {
+    validate: false,
+    preview: false
+  }
+
+  # Remove flags from args
+  args.reject! do |arg|
+    case arg
+    when '--validate', '-v'
+      flags[:validate] = true
+      true
+    when '--preview', '-p'
+      flags[:preview] = true
+      true
+    when '--help', '-h'
+      puts "Usage: #{$0} [OPTIONS] <markdown_file>"
+      puts "\nOptions:"
+      puts '  --validate, -v    Validate configuration and styles without processing'
+      puts '  --preview, -p     Open generated HTML in browser after processing'
+      puts '  --help, -h        Show this help message'
+      puts "\nExamples:"
+      puts "  #{$0} email.md              # Generate HTML and TXT files"
+      puts "  #{$0} --validate             # Validate configuration only"
+      puts "  #{$0} --preview email.md     # Generate and preview in browser"
+      puts "  #{$0} -v -p email.md         # Validate, generate, and preview"
+      exit 0
+    else
+      false
+    end
+  end
+
+  { flags: flags, markdown_file: args.first }
+end
+
+# Main script
+parsed = parse_args
+flags = parsed[:flags]
+markdown_file = parsed[:markdown_file]
+
+# Load configuration and styles
+config = load_config
+styles = load_styles
+
+# Run validation if requested
+if flags[:validate] && markdown_file.nil?
+  success = run_validation(config, styles)
+  exit(success ? 0 : 1)
+end
+
+# If markdown file is provided, process it
+if markdown_file
+  unless File.exist?(markdown_file)
+    warn "Error: File not found: #{markdown_file}"
+    exit 1
+  end
+
+  # Run validation if requested (but continue processing)
+  if flags[:validate]
+    success = run_validation(config, styles)
+    puts "\nContinuing with processing despite validation issues...\n\n" unless success
+  end
+
+  # Derive output filenames
+  base_name = File.basename(markdown_file, File.extname(markdown_file))
+  output_dir = File.dirname(markdown_file)
+  html_file = File.join(output_dir, "#{base_name}.html")
+  txt_file = File.join(output_dir, "#{base_name}.txt")
+
+  # Read template
+  template_file = File.join(config_dir, config.dig('paths', 'template_file') || 'email-template.html')
+  unless File.exist?(template_file)
+    warn "Error: Template file not found: #{template_file}"
+    warn "Please ensure email-template.html exists in #{config_dir}"
+    exit 1
+  end
+
+  template = File.read(template_file)
+
+  # Read Markdown and check for YAML frontmatter
+  markdown_raw = File.read(markdown_file)
+  yaml_config = nil
+  markdown_content = markdown_raw
+
+  if markdown_raw =~ /\A---\s*\n(.*?)\n---\s*\n(.*)\z/m
+    yaml_content = Regexp.last_match(1)
+    markdown_content = Regexp.last_match(2)
+    begin
+      yaml_config = YAML.safe_load(yaml_content)
+    rescue StandardError => e
+      warn "Warning: Could not parse YAML frontmatter: #{e.message}"
+    end
+  end
+
+  # Convert Markdown to HTML
+  processor = config.dig('markdown', 'processor') || 'apex'
+  html_content = markdown_to_html(markdown_content, processor)
+
+  # Apply email styles
+  styled_html = apply_email_styles(html_content, styles)
+
+  # Extract title
+  title = 'Email'
+  if yaml_config && yaml_config['title']
+    title = yaml_config['title']
+  elsif styled_html =~ %r{<h1[^>]*>(.*?)</h1>}i
+    title = Regexp.last_match(1).strip
+  end
+
+  # Replace template variables
+  final_html = replace_template_variables(template, config, styles, title, styled_html)
+
+  # Write HTML file
+  File.write(html_file, final_html)
+  puts "HTML email generated: #{html_file}"
+
+  # Generate plain text version
+  plain_text_content = markdown_to_plain_text(markdown_content)
+  signature_text = config.dig('template', 'signature_text') || '-Brett'
+
+  plain_text = <<~TEXT
+    #{plain_text_content}
+
+    #{signature_text}
+
+    ---
+
+    [webversion]
+
+    [unsubscribe]
+  TEXT
+
+  # Write TXT file
+  File.write(txt_file, plain_text)
+  puts "Plain text email generated: #{txt_file}"
+
+  # Preview if requested
+  if flags[:preview]
+    preview_html(html_file)
+    puts "\nPreview mode: Skipping Sendy campaign creation."
+    exit 0
+  end
+elsif ARGV.empty?
+  # Show usage if no arguments provided
+  puts "Usage: #{$0} [OPTIONS] <markdown_file>"
+  puts "\nOptions:"
+  puts '  --validate, -v    Validate configuration and styles without processing'
+  puts '  --preview, -p     Open generated HTML in browser after processing'
+  puts '  --help, -h        Show this help message'
+  puts "\nExamples:"
+  puts "  #{$0} email.md              # Generate HTML and TXT files"
+  puts "  #{$0} --validate             # Validate configuration only"
+  puts "  #{$0} --preview email.md     # Generate and preview in browser"
+  puts "  #{$0} -v -p email.md         # Validate, generate, and preview"
+  exit 0
+else
+  warn 'Error: Markdown file is required (unless using --validate only)'
+  warn 'Use --help for usage information'
+  exit 1
+end
+
+# Create Sendy campaign if YAML config has title (skip if preview mode)
+unless flags[:preview]
+  if yaml_config && yaml_config['title']
+    sendy_config = config['sendy'] || {}
+    email_config = config['email'] || {}
+    campaign_config = config['campaign'] || {}
+
+    create_url = sendy_config['api_url']
+    unless create_url
+      warn 'Error: sendy.api_url not configured in config.yml'
+      exit 1
+    end
+
+    uri = URI(create_url)
+
+    is_draft = yaml_config['status'] == 'draft' || !yaml_config['publish_date']
+    publish_date = nil
+
+    params = {
+      api_key: sendy_config['api_key'],
+      brand_id: sendy_config['brand_id'],
+      from_name: email_config['from_name'],
+      from_email: email_config['from_email'],
+      reply_to: email_config['reply_to'],
+      title: yaml_config['title'],
+      subject: yaml_config['title'],
+      plain_text: plain_text,
+      html_text: final_html,
+      list_ids: sendy_config['list_ids'],
+      track_opens: campaign_config['track_opens'] || '1',
+      track_clicks: campaign_config['track_clicks'] || '1'
+    }
+
+    if is_draft
+      params[:send_campaign] = '0'
+    else
+      begin
+        publish_date = Time.parse(yaml_config['publish_date'])
+      rescue StandardError => e
+        warn "Warning: Could not parse publish_date: #{e.message}"
+        puts 'No campaign created. Invalid publish_date format.'
+        exit 0
+      end
+      params[:schedule_date_time] = publish_date.strftime('%B %d, %Y %I:%M%p')
+      params[:schedule_timezone] = campaign_config['default_timezone'] || 'America/Chicago'
+    end
+
+    # Make HTTP request
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+
+    request = Net::HTTP::Post.new(uri.path)
+    request.set_form_data(params)
+
+    res = http.request(request)
+    if res.is_a?(Net::HTTPSuccess)
+      puts res.body
+      if is_draft
+        puts 'Draft campaign created.'
+      else
+        puts "Campaign created and scheduled for #{publish_date.strftime('%Y-%m-%d %H:%M')}"
+      end
+      # Open Sendy in browser
+      web_version_url = config.dig('template', 'web_version_url')
+      system('open', web_version_url) if web_version_url
+    else
+      warn "Error creating campaign: #{res.code} #{res.message}"
+      warn res.body if res.body
+    end
+  elsif yaml_config.nil? || !yaml_config['title']
+    puts "\nNo campaign created. To create a campaign, add a YAML header with `title` (and optionally `publish_date` or `status: draft`) to the Markdown file."
+  end
+end

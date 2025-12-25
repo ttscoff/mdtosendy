@@ -1,0 +1,44 @@
+# Email Generator Configuration
+# Copy this file to config.yml and fill in your values
+
+# Sendy API Configuration
+sendy:
+  api_url: 'https://your-domain.com/api/campaigns/create.php'
+  api_key: 'your-api-key-here'
+  brand_id: '1'
+  list_ids: 'your-list-id-here'
+
+# Email Settings
+email:
+  from_name: 'Your Name'
+  from_email: 'your-email@example.com'
+  reply_to: 'your-email@example.com'
+
+# Campaign Settings
+campaign:
+  track_opens: '1'
+  track_clicks: '1'
+  default_timezone: 'America/Chicago'
+
+# Template Settings
+template:
+  header_image_url: 'https://your-domain.com/img/email/header.jpg'
+  header_image_alt: 'Email Header'
+  header_image_width: 600
+  header_image_height: 185
+  signature_image_url: 'https://your-domain.com/img/signature.png'
+  signature_image_alt: 'Signature'
+  signature_image_width: 98
+  signature_image_height: 98
+  signature_text: '-Your Name'
+  web_version_url: 'https://your-domain.com/a25c6/'
+
+# File Paths
+paths:
+  template_file: 'email-template.html'
+  styles_file: 'styles.css'
+
+# Markdown Processor
+markdown:
+  processor: 'apex'  # or 'pandoc', 'kramdown', etc.
+

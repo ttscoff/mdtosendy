@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{{TITLE}}</title>
+    <!--[if mso]>
+	<style type="text/css">
+		body, table, td {font-family: {{FONT_FAMILY}} !important;}
+	</style>
+	<![endif]-->
+</head>
+
+<body style="{{BODY_STYLE}}">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="{{WRAPPER_STYLE}}">
+        <tr>
+            <td align="center" style="padding: 20px 0;">
+                <!-- Main Container -->
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600"
+                    style="{{CONTENT_WRAPPER_STYLE}}">
+
+                    <!-- Header Image -->
+                    <tr>
+                        <td align="center" style="padding: 0;">
+                            <img alt="{{HEADER_IMAGE_ALT}}" src="{{HEADER_IMAGE_URL}}" width="{{HEADER_IMAGE_WIDTH}}"
+                                height="{{HEADER_IMAGE_HEIGHT}}"
+                                style="display: block; width: {{HEADER_IMAGE_WIDTH}}px; height: {{HEADER_IMAGE_HEIGHT}}px; border: 0; border-radius: 4px 4px 0 0;" />
+                        </td>
+                    </tr>
+
+                    <!-- Content Area -->
+                    <tr>
+                        <td style="padding: 40px 40px 30px 40px;">
+
+                            {{CONTENT}}
+
+                            <!-- Signature -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td style="padding: 0;">
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                            <tr>
+                                                <td style="padding: 0 15px 0 0; vertical-align: top;">
+                                                    <img src="{{SIGNATURE_IMAGE_URL}}" alt="{{SIGNATURE_IMAGE_ALT}}"
+                                                        width="{{SIGNATURE_IMAGE_WIDTH}}"
+                                                        height="{{SIGNATURE_IMAGE_HEIGHT}}"
+                                                        style="display: block; width: {{SIGNATURE_IMAGE_WIDTH}}px; height: {{SIGNATURE_IMAGE_HEIGHT}}px; border: 0; border-radius: 50%;" />
+                                                </td>
+                                                <td style="padding: 0; vertical-align: middle;">
+                                                    <p style="{{SIGNATURE_STYLE}}">
+                                                        {{SIGNATURE_TEXT}}</p>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="{{FOOTER_STYLE}}">
+                            <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%">
+                                <tbody>
+                                    <tr>
+                                        <td align="center" style="padding: 0 0 10px 0;">
+                                            <p style="{{FOOTER_TEXT_STYLE}}">
+                                                <span style="color: #666666; text-decoration: underline;">
+                                                    <webversion>View web version</webversion>
+                                                </span>
+                                            </p>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td align="center" style="padding: 0;">
+                                            <p style="{{FOOTER_TEXT_STYLE}}">
+                                                <span style="color: #666666; text-decoration: underline;">
+                                                    <unsubscribe>Unsubscribe here</unsubscribe>
+                                                </span>
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

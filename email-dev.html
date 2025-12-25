@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Email Template Development Preview</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Additional dev-only styles for better preview */
+        body {
+            padding: 20px;
+        }
+
+        /* Show table structure for development */
+        table[role="presentation"] {
+            border: 1px dashed rgba(0, 0, 0, 0.1);
+        }
+
+        /* Make wrapper visible */
+        .wrapper {
+            min-height: 100vh;
+        }
+    </style>
+</head>
+
+<body>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="wrapper">
+        <tr>
+            <td align="center" style="padding: 20px 0;">
+                <!-- Main Container -->
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" class="content-wrapper">
+
+                    <!-- Header Image -->
+                    <tr>
+                        <td align="center" style="padding: 0;">
+                            <img alt="Email Header" src="https://marked2app.com/img/email/marked3emailheader2_01.jpg"
+                                width="600" height="185"
+                                style="display: block; width: 600px; height: 185px; border: 0; border-radius: 4px 4px 0 0;" />
+                        </td>
+                    </tr>
+
+                    <!-- Content Area -->
+                    <tr>
+                        <td style="padding: 40px 40px 30px 40px;">
+
+                            <!-- Sample Content -->
+                            <h1>Main Heading (H1)</h1>
+
+                            <p>This is a paragraph of text. It demonstrates the paragraph styling with proper line height and spacing. You can edit the CSS file and see changes reflected immediately in your browser.</p>
+
+                            <h2>Secondary Heading (H2)</h2>
+
+                            <p>Another paragraph with some <strong>bold text</strong> and <em>italic text</em> to show text formatting styles.</p>
+
+                            <h3>Tertiary Heading (H3)</h3>
+
+                            <p>Here's a paragraph with a <a href="#">regular link</a> to demonstrate link styling.</p>
+
+                            <!-- Button Link -->
+                            <p><a href="https://example.com" class="button">Click This Button</a></p>
+
+                            <!-- Lists -->
+                            <ul>
+                                <li>First unordered list item</li>
+                                <li>Second list item with <strong>bold text</strong></li>
+                                <li>Third list item with a <a href="#">link</a></li>
+                                <li>Fourth list item</li>
+                            </ul>
+
+                            <ol>
+                                <li>First ordered list item</li>
+                                <li>Second ordered item</li>
+                                <li>Third ordered item</li>
+                            </ol>
+
+                            <!-- Images -->
+                            <p>Here's a full-width image:</p>
+                            <img src="https://via.placeholder.com/600x300" alt="Placeholder" width="600" class="full-width" />
+
+                            <p>Here's a floated image on the left:</p>
+                            <img src="https://via.placeholder.com/200x200" alt="Placeholder" width="200" style="float: left;" />
+                            <p>This paragraph wraps around the floated image. You can see how the image floats to the left and text flows around it. This is useful for creating more interesting layouts in your emails.</p>
+                            <p style="clear: both;">This paragraph clears the float.</p>
+
+                            <p>Here's a floated image on the right:</p>
+                            <img src="https://via.placeholder.com/200x200" alt="Placeholder" width="200" style="float: right;" />
+                            <p>This paragraph wraps around the right-floated image. The image appears on the right side and text flows around it on the left.</p>
+                            <p style="clear: both;">This paragraph clears the float.</p>
+
+                            <!-- Signature -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td style="padding: 0;">
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                            <tr>
+                                                <td style="padding: 0 15px 0 0; vertical-align: top;">
+                                                    <img src="https://marked2app.com/img/me_circle.png" alt="Signature"
+                                                        width="98" height="98"
+                                                        style="display: block; width: 98px; height: 98px; border: 0; border-radius: 50%;" />
+                                                </td>
+                                                <td style="padding: 0; vertical-align: middle;">
+                                                    <p class="signature">-Brett</p>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td class="footer">
+                            <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%">
+                                <tbody>
+                                    <tr>
+                                        <td align="center" style="padding: 0 0 10px 0;">
+                                            <p>
+                                                <span style="color: #666666; text-decoration: underline;">
+                                                    View web version
+                                                </span>
+                                            </p>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td align="center" style="padding: 0;">
+                                            <p>
+                                                <span style="color: #666666; text-decoration: underline;">
+                                                    Unsubscribe here
+                                                </span>
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>
+
