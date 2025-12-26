@@ -10,6 +10,9 @@ require 'net/https'
 require 'openssl'
 require 'time'
 
+# Version
+VERSION = '1.0.0'
+
 # Simple CSS parser for converting CSS rules to inline styles
 # Handles basic selectors and properties for email styling
 class CSSParser
