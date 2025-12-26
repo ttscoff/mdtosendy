@@ -31,7 +31,18 @@ template:
   signature_image_width: 98
   signature_image_height: 98
   signature_text: '-Your Name'
-  web_version_url: 'https://your-domain.com/a25c6/'
+  # Optional: Primary footer appears after signature, before unsubscribe section
+  # Can contain Markdown or HTML (e.g., product links, promotional content)
+  # primary_footer: |
+  #   [![](/mas.jpg)](example.com "Purchase on the Mac App Store") | [![](/paddle.jpg)](example.com "Purchase directly")
+  # Footer text - can contain Markdown and will preserve <webversion> and <unsubscribe> tags
+  # Sendy will replace these tags when sending the email
+  # footer_text: |
+  #   Copyright © 2025 Your Name<br>
+  #   123 Main St<br>
+  #   City, State ZIP
+  #
+  #   <webversion>View on the web</webversion> | <unsubscribe>Unsubscribe</unsubscribe>
 
 # File Paths
 paths:

@@ -39,6 +39,10 @@
                             <!-- Signature -->
                             <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                                 <tr>
+                                    <td style="padding: 0; height: 20px; line-height: 20px; font-size: 20px;">&nbsp;
+                                    </td>
+                                </tr>
+                                <tr>
                                     <td style="padding: 0;">
                                         <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                                             <tr>
@@ -49,14 +53,17 @@
                                                         style="display: block; width: {{SIGNATURE_IMAGE_WIDTH}}px; height: {{SIGNATURE_IMAGE_HEIGHT}}px; border: 0; border-radius: 50%;" />
                                                 </td>
                                                 <td style="padding: 0; vertical-align: middle;">
-                                                    <p style="{{SIGNATURE_STYLE}}">
-                                                        {{SIGNATURE_TEXT}}</p>
+                                                    <div style="{{SIGNATURE_STYLE}}">
+                                                        {{SIGNATURE_TEXT}}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         </table>
                                     </td>
                                 </tr>
                             </table>
+
+                            {{PRIMARY_FOOTER}}
 
                         </td>
                     </tr>
@@ -67,21 +74,10 @@
                             <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%">
                                 <tbody>
                                     <tr>
-                                        <td align="center" style="padding: 0 0 10px 0;">
-                                            <p style="{{FOOTER_TEXT_STYLE}}">
-                                                <span style="color: #666666; text-decoration: underline;">
-                                                    <webversion>View web version</webversion>
-                                                </span>
-                                            </p>
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td align="center" style="padding: 0;">
-                                            <p style="{{FOOTER_TEXT_STYLE}}">
-                                                <span style="color: #666666; text-decoration: underline;">
-                                                    <unsubscribe>Unsubscribe here</unsubscribe>
-                                                </span>
-                                            </p>
+                                        <td align="center" style="padding: 20px 40px;">
+                                            <div style="{{FOOTER_TEXT_STYLE}}">
+                                                {{FOOTER_TEXT}}
+                                            </div>
                                         </td>
                                     </tr>
                                 </tbody>

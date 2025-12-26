@@ -1,0 +1,34 @@
+# Email Generator Demo
+
+Here's a test email using my own configuration. You can adjust the header image, the signature image, etc. using configuration, and you have complete control over the styling just by editing a CSS stylesheet.
+
+It's easy to add CTAs without extra effort using Apex (https://brettterpstra.com/projects/apex) or Kramdown.
+
+```markdown
+Call to Action! (https://brettterpstra.com)
+```
+
+Call to Action! (https://brettterpstra.com)
+
+Lists get converted into tables:
+
+- **Here's a cool thing** that's just a regular Markdown list item
+- **Here's the other cool thing** that's just another list item
+
+![][floated]Add images by using Markdown syntax and a hosted image URL. You can use MultiMarkdown formatting to right or left align an image. This works well when embedding in a paragraph.
+
+[floated]: https://stuff.brettterpstra.com/446-200x300.jpg style="float:right"
+
+Signature lines are automatically added, you don't need to include a signoff in your Markdown.
+
+Thanks!
+Brett Terpstra (https://brettterpstra.com), Marked Developer
+
+---
+
+Copyright © 2025 Your Name
+123 Main St
+City, State ZIP
+Web Version: [webversion]
+Unsubscribe: [unsubscribe]
+

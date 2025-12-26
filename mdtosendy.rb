@@ -191,13 +191,19 @@ def apply_email_styles(html_content, styles)
     next if p.ancestors.any? { |a| a.name == 'td' && a['style']&.include?('padding') }
 
     td_style = styles.get_style('p td')
-    td_padding = td_style['padding'] || '0 0 25px 0'
+    td_padding = td_style['padding'] || '0 0 20px 0'
     p_style = styles.style_string('p')
+
+    # Remove padding and margin from p_style since they're handled by td_padding
+    p_style_filtered = p_style.split(';').reject do |declaration|
+      prop = declaration.split(':').first&.strip&.downcase
+      %w[padding margin].include?(prop)
+    end.join('; ')
 
     table_html = <<~HTML
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
         <tr>
-          <td style="padding: #{td_padding}; #{p_style};">
+          <td style="padding: #{td_padding}; #{p_style_filtered};">
             #{p.inner_html}
           </td>
         </tr>
@@ -386,13 +392,21 @@ end
 
 # Convert Markdown to plain text
 def markdown_to_plain_text(markdown_content)
-  plain_text = markdown_content.gsub(/\{[^}]*\}/, '')
+  plain_text = markdown_content.dup
+  # Convert <br> and <br/> tags to single newlines (no blank line)
+  plain_text = plain_text.gsub(%r{<br\s*/?>}i, "\n")
+  # Remove other HTML tags but preserve their text content
+  plain_text = plain_text.gsub(/<[^>]+>/, '')
+  plain_text = plain_text.gsub(/\{[^}]*\}/, '')
   plain_text = plain_text.gsub(/\[([^\]]+)\]\(([^)]+)\)/) do
     link_text = Regexp.last_match(1)
     url = Regexp.last_match(2)
     "#{link_text} (#{url})"
   end
-  plain_text = plain_text.gsub(/\n{3,}/, "\n\n")
+  # Normalize whitespace: collapse 3+ newlines to 2, but preserve single newlines
+  # This preserves <br> newlines while removing excessive blank lines
+  plain_text = plain_text.gsub(/\r\n/, "\n") # Normalize line endings
+  plain_text = plain_text.gsub(/\n{3,}/, "\n\n") # Collapse excessive newlines
   plain_text.strip
 end
 
@@ -517,15 +531,55 @@ def run_validation(config, styles)
   all_errors.empty?
 end
 
+# Extract padding-top value from style hash
+def extract_padding_top(style_hash)
+  return nil unless style_hash.is_a?(Hash)
+
+  style_hash['padding-top'] || style_hash['padding']&.split&.first
+end
+
 # Replace template variables
-def replace_template_variables(template, config, styles, title, content)
+def replace_template_variables(template, config, styles, title, content, primary_footer_html = '', signature_html = '', footer_html = '')
+  # Get primary footer style settings
+  primary_footer_style = styles.style_string('.primary-footer')
+  primary_footer_padding = extract_padding_top(styles.get_style('.primary-footer')) || '20px'
+
+  # Wrap primary footer in a styled container if it exists
+  primary_footer_content = ''
+  unless primary_footer_html.nil? || primary_footer_html.strip.empty?
+    primary_footer_content = <<~HTML
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+        <tr>
+          <td style="padding: #{primary_footer_padding}; text-align: center; #{primary_footer_style};">
+            #{primary_footer_html}
+          </td>
+        </tr>
+      </table>
+    HTML
+  end
+
+  # Use processed signature HTML if provided, otherwise fall back to raw text
+  signature_content = signature_html
+  if signature_content.nil? || signature_content.strip.empty?
+    signature_content = config.dig('template', 'signature_text') || '-Brett'
+  end
+
+  # Get footer style settings
+  footer_style = styles.style_string('.footer')
+  footer_text_style = styles.style_string('.footer p')
+
+  # Wrap footer text in a styled container if it exists
+  footer_content = ''
+  footer_content = footer_html unless footer_html.nil? || footer_html.strip.empty?
+
   template_vars = {
     'TITLE' => title,
     'CONTENT' => content,
     'BODY_STYLE' => styles.style_string('body'),
     'WRAPPER_STYLE' => styles.style_string('.wrapper'),
     'CONTENT_WRAPPER_STYLE' => styles.style_string('.content-wrapper'),
-    'FONT_FAMILY' => styles.get_style('body')['font-family'] || 'Avenir, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    'FONT_FAMILY' => styles.get_style('body')['font-family'] ||
+                     'Avenir, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
     'HEADER_IMAGE_URL' => config.dig('template', 'header_image_url') || '',
     'HEADER_IMAGE_ALT' => config.dig('template', 'header_image_alt') || 'Email Header',
     'HEADER_IMAGE_WIDTH' => (config.dig('template', 'header_image_width') || 600).to_s,
@@ -534,10 +588,13 @@ def replace_template_variables(template, config, styles, title, content)
     'SIGNATURE_IMAGE_ALT' => config.dig('template', 'signature_image_alt') || 'Signature',
     'SIGNATURE_IMAGE_WIDTH' => (config.dig('template', 'signature_image_width') || 98).to_s,
     'SIGNATURE_IMAGE_HEIGHT' => (config.dig('template', 'signature_image_height') || 98).to_s,
-    'SIGNATURE_TEXT' => config.dig('template', 'signature_text') || '-Brett',
+    'SIGNATURE_TEXT' => signature_content,
     'SIGNATURE_STYLE' => styles.style_string('.signature') || styles.style_string('p'),
-    'FOOTER_STYLE' => styles.style_string('.footer'),
-    'FOOTER_TEXT_STYLE' => styles.style_string('.footer p')
+    'SIGNATURE_TABLE_PADDING' => extract_padding_top(styles.get_style('.signature')) || '20px',
+    'PRIMARY_FOOTER' => primary_footer_content,
+    'FOOTER_STYLE' => footer_style,
+    'FOOTER_TEXT_STYLE' => footer_text_style,
+    'FOOTER_TEXT' => footer_content
   }
 
   result = template.dup
@@ -670,8 +727,93 @@ if markdown_file
     title = Regexp.last_match(1).strip
   end
 
+  # Process primary footer if configured
+  primary_footer_html = ''
+  primary_footer_raw = config.dig('template', 'primary_footer')
+  if primary_footer_raw && !primary_footer_raw.strip.empty?
+    # Check if it looks like HTML or Markdown
+    # If it starts with < and contains HTML tags, treat as HTML
+    # Otherwise, treat as Markdown
+    if primary_footer_raw.strip =~ /^<[a-z]/i && primary_footer_raw.strip =~ %r{</[a-z]>.*$}i
+      # It's HTML, just apply styles
+      primary_footer_html = apply_email_styles(primary_footer_raw, styles)
+    else
+      # It's Markdown, convert to HTML then apply styles
+      primary_footer_markdown_html = markdown_to_html(primary_footer_raw, processor)
+      primary_footer_html = apply_email_styles(primary_footer_markdown_html, styles)
+    end
+  end
+
+  # Process signature text if configured
+  signature_html = ''
+  signature_raw = config.dig('template', 'signature_text') || '-Brett'
+  if signature_raw && !signature_raw.strip.empty?
+    # Check if it looks like HTML or Markdown
+    # If it starts with < and contains HTML tags, treat as HTML
+    # Otherwise, treat as Markdown
+    if signature_raw.strip =~ /^<[a-z]/i && signature_raw.strip =~ %r{</[a-z]>.*$}i
+      # It's HTML, just apply styles
+      signature_html = apply_email_styles(signature_raw, styles)
+    else
+      # It's Markdown, convert to HTML then apply styles
+      signature_markdown_html = markdown_to_html(signature_raw, processor)
+      signature_html = apply_email_styles(signature_markdown_html, styles)
+    end
+  end
+
+  # Process footer text if configured
+  footer_html = ''
+  footer_raw = config.dig('template', 'footer_text')
+  if footer_raw && !footer_raw.strip.empty?
+    # Extract webversion and unsubscribe content before processing
+    webversion_content = ''
+    unsubscribe_content = ''
+
+    footer_without_tags = footer_raw.dup
+
+    # Extract and replace webversion tag with an HTML span placeholder
+    if footer_without_tags =~ %r{<webversion>(.*?)</webversion>}i
+      webversion_content = Regexp.last_match(1)
+      placeholder = '<span data-mdtosendy="webversion"></span>'
+      footer_without_tags = footer_without_tags.gsub(%r{<webversion>.*?</webversion>}i, placeholder)
+    end
+
+    # Extract and replace unsubscribe tag with an HTML span placeholder
+    if footer_without_tags =~ %r{<unsubscribe>(.*?)</unsubscribe>}i
+      unsubscribe_content = Regexp.last_match(1)
+      placeholder = '<span data-mdtosendy="unsubscribe"></span>'
+      footer_without_tags = footer_without_tags.gsub(%r{<unsubscribe>.*?</unsubscribe>}i, placeholder)
+    end
+
+    # Check if it looks like HTML or Markdown
+    # If it starts with < and contains HTML tags, treat as HTML
+    # Otherwise, treat as Markdown
+    if footer_without_tags.strip =~ /^<[a-z]/i && footer_without_tags.strip =~ %r{</[a-z]>.*$}i
+      # It's HTML, just apply styles
+      footer_html = apply_email_styles(footer_without_tags, styles)
+    else
+      # It's Markdown, convert to HTML then apply styles
+      footer_markdown_html = markdown_to_html(footer_without_tags, processor)
+      footer_html = apply_email_styles(footer_markdown_html, styles)
+    end
+
+    # Restore webversion and unsubscribe tags using Nokogiri for reliable replacement
+    if footer_html.include?('data-mdtosendy')
+      doc = Nokogiri::HTML::DocumentFragment.parse(footer_html)
+      doc.css('span[data-mdtosendy="webversion"]').each do |span|
+        span.replace("<webversion>#{webversion_content}</webversion>")
+      end
+      doc.css('span[data-mdtosendy="unsubscribe"]').each do |span|
+        span.replace("<unsubscribe>#{unsubscribe_content}</unsubscribe>")
+      end
+      footer_html = doc.to_html
+    end
+  end
+
   # Replace template variables
-  final_html = replace_template_variables(template, config, styles, title, styled_html)
+  final_html = replace_template_variables(
+    template, config, styles, title, styled_html, primary_footer_html, signature_html, footer_html
+  )
 
   # Write HTML file
   File.write(html_file, final_html)
@@ -679,18 +821,83 @@ if markdown_file
 
   # Generate plain text version
   plain_text_content = markdown_to_plain_text(markdown_content)
-  signature_text = config.dig('template', 'signature_text') || '-Brett'
+  signature_text_raw = config.dig('template', 'signature_text') || '-Brett'
+
+  # Process signature text for plain text (convert Markdown to plain text)
+  signature_text = signature_text_raw
+  if signature_text_raw && !signature_text_raw.strip.empty?
+    # If it's HTML, extract text content; otherwise treat as Markdown
+    if signature_text_raw.strip =~ /^<[a-z]/i && signature_text_raw.strip =~ %r{</[a-z]>.*$}i
+      # It's HTML, extract plain text
+      doc = Nokogiri::HTML::DocumentFragment.parse(signature_text_raw)
+      signature_text = doc.text.strip
+    else
+      # It's Markdown, convert to plain text
+      signature_text = markdown_to_plain_text(signature_text_raw)
+    end
+  end
+
+  # Add primary footer to plain text if configured
+  primary_footer_text = ''
+  if primary_footer_raw && !primary_footer_raw.strip.empty?
+    primary_footer_text = "\n\n#{markdown_to_plain_text(primary_footer_raw)}\n"
+  end
+
+  # Add footer text to plain text if configured
+  footer_text_plain = ''
+  if footer_raw && !footer_raw.strip.empty?
+    # Remove webversion and unsubscribe tags before converting to plain text
+    # We'll add them back in the proper format at the end
+    footer_for_plain = footer_raw.dup
+    has_webversion = false
+    has_unsubscribe = false
+
+    # Check for and remove webversion tag
+    if footer_for_plain =~ %r{<webversion>.*?</webversion>}i
+      has_webversion = true
+      footer_for_plain = footer_for_plain.gsub(%r{<webversion>.*?</webversion>}i, '')
+    end
+
+    # Check for and remove unsubscribe tag
+    if footer_for_plain =~ %r{<unsubscribe>.*?</unsubscribe>}i
+      has_unsubscribe = true
+      footer_for_plain = footer_for_plain.gsub(%r{<unsubscribe>.*?</unsubscribe>}i, '')
+    end
+
+    # Convert <br> and <br/> tags to a placeholder, then process, then convert to single newline
+    # This ensures <br> becomes exactly one newline, not two (even if followed by a newline in YAML)
+    footer_for_plain = footer_for_plain.gsub(%r{<br\s*/?>}i, '___BR_PLACEHOLDER___')
+
+    # Clean up any separators (like "|") that were between the tags
+    footer_for_plain = footer_for_plain.gsub(/\s*\|\s*/, "\n")
+
+    # Convert remaining footer content to plain text
+    footer_text_plain = markdown_to_plain_text(footer_for_plain).strip
+
+    # Replace <br> placeholder with single newline, ensuring no double newlines
+    # Replace placeholder that might be followed by a newline with just one newline
+    footer_text_plain = footer_text_plain
+                        .gsub(/___BR_PLACEHOLDER___\n?/, "\n")
+                        .gsub(/\n{3,}/, "\n\n") # Collapse excessive newlines
+                        .strip
+
+    # Add webversion and unsubscribe in proper format
+    footer_lines = []
+    footer_lines << footer_text_plain unless footer_text_plain.empty?
+    footer_lines << 'Web Version: [webversion]' if has_webversion
+    footer_lines << 'Unsubscribe: [unsubscribe]' if has_unsubscribe
+
+    footer_text_plain = footer_lines.join("\n")
+    footer_text_plain = "\n\n---\n\n#{footer_text_plain}\n" unless footer_text_plain.empty?
+  else
+    # Default footer if not configured
+    footer_text_plain = "\n\n---\n\nWeb Version: [webversion]\n\nUnsubscribe: [unsubscribe]\n"
+  end
 
   plain_text = <<~TEXT
     #{plain_text_content}
 
-    #{signature_text}
-
-    ---
-
-    [webversion]
-
-    [unsubscribe]
+    #{signature_text}#{primary_footer_text}#{footer_text_plain}
   TEXT
 
   # Write TXT file
@@ -785,9 +992,6 @@ unless flags[:preview]
       else
         puts "Campaign created and scheduled for #{publish_date.strftime('%Y-%m-%d %H:%M')}"
       end
-      # Open Sendy in browser
-      web_version_url = config.dig('template', 'web_version_url')
-      system('open', web_version_url) if web_version_url
     else
       warn "Error creating campaign: #{res.code} #{res.message}"
       warn res.body if res.body

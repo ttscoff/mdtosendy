@@ -220,7 +220,7 @@ Located at `~/.config/mdtosendy/config.yml`, organized into sections:
 - **sendy**: API URL, API key, brand ID, list IDs
 - **email**: From name, from email, reply-to address
 - **campaign**: Tracking settings, timezone
-- **template**: Header image, signature, URLs, and template variables
+- **template**: Header image, signature, primary footer, URLs, and template variables
 - **paths**: File paths for template and styles
 - **markdown**: Markdown processor to use (default: `apex`). See [Prerequisites](#prerequisites) for installation options.
 
@@ -233,7 +233,7 @@ Located at `~/.config/mdtosendy/styles.css`, supports styling for:
 - **Images**: `img`, `img.full-width`, `img.float-left`, `img.float-right`
 - **Lists**: `ul`, `ol`, `li`, `li.bullet`, `li.content`
 - **Layout**: `body`, `.wrapper`, `.content-wrapper`
-- **Components**: `.footer`, `.signature`
+- **Components**: `.footer`, `.signature`, `.primary-footer`
 
 ### How CSS to Inline Styles Works
 
@@ -270,9 +270,42 @@ The email template (`email-template.html`) uses variable placeholders that are a
 - `{{FONT_FAMILY}}` - Font family from CSS `body` selector
 - `{{HEADER_IMAGE_URL}}` - From `template.header_image_url` in config
 - `{{SIGNATURE_TEXT}}` - From `template.signature_text` in config
+- `{{PRIMARY_FOOTER}}` - Processed primary footer content (from `template.primary_footer` in config)
 - And more...
 
 See the example files for a complete list of available variables.
+
+### Primary Footer
+
+The primary footer is an optional section that appears after the signature but before the unsubscribe section. It's useful for product links, promotional content, or other footer information.
+
+**Configuration:**
+
+Add a `primary_footer` key to the `template` section in your `config.yml`:
+
+```yaml
+template:
+  primary_footer: |
+    [![](/mas.jpg)](mas-link "Purchase on the Mac App Store") | [![](/paddle.jpg)](paddle-link "Purchase directly")
+```
+
+The primary footer can contain:
+- **Markdown**: Links, images, and text formatted in Markdown
+- **HTML**: Direct HTML content for more complex layouts
+
+The content is automatically processed and styled using your CSS rules (specifically the `.primary-footer` selector). The footer is centered by default and appears between the signature and the unsubscribe section.
+
+**Styling:**
+
+You can style the primary footer using CSS in your `styles.css`:
+
+```css
+.primary-footer {
+  text-align: center;
+  padding: 20px 0;
+  color: #666666;
+}
+```
 
 ## Requirements
 
