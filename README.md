@@ -191,7 +191,7 @@ mdtosendy -h
 
 ### Markdown File Format
 
-Your Markdown file can include YAML frontmatter for Sendy campaign creation:
+Your Markdown file can include YAML frontmatter for Sendy campaign creation and to override configuration settings:
 
 ```markdown
 ---
@@ -205,11 +205,47 @@ status: draft
 Your email content here...
 ```
 
+**Campaign Settings:**
 - `title` - Required for Sendy campaign creation
 - `publish_date` - Schedule the campaign (format: YYYY-MM-DD HH:MM:SS)
 - `status: draft` - Create a draft campaign instead of scheduling
 
 If `title` is present in the frontmatter, the script will automatically create a Sendy campaign (unless `--preview` is used).
+
+**Overriding Configuration:**
+
+You can override any configuration setting from `config.yml` directly in the frontmatter. This is useful for per-email customization without modifying your base configuration.
+
+**Example - Override header image:**
+```markdown
+---
+title: Test Email
+status: draft
+header_image_url: 'https://marked2app.com/img/email/marked3emailheader2_02.jpg'
+---
+
+# Email Content
+```
+
+**Supported override keys:**
+- **Template settings**: `header_image_url`, `header_image_alt`, `header_image_width`, `header_image_height`, `signature_image_url`, `signature_image_alt`, `signature_image_width`, `signature_image_height`, `signature_text`, `primary_footer`, `footer_text`
+- **Email settings**: `from_name`, `from_email`, `reply_to`
+- **Markdown settings**: `processor`
+- **Campaign settings**: `track_opens`, `track_clicks`, `default_timezone`
+
+You can also use nested structure in the frontmatter:
+```markdown
+---
+title: Test Email
+template:
+  header_image_url: 'https://example.com/header.jpg'
+  signature_text: '-Custom Signature'
+email:
+  from_name: 'Custom Sender'
+---
+```
+
+Frontmatter values take precedence over values in `config.yml`, allowing you to customize individual emails while maintaining a base configuration.
 
 ## Configuration
 

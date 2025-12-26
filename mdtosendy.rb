@@ -557,6 +557,99 @@ def extract_padding_top(style_hash)
   style_hash['padding-top'] || style_hash['padding']&.split&.first
 end
 
+# Deep merge two hashes, with the second hash taking precedence
+def deep_merge(base, override)
+  return override if base.nil?
+  return base if override.nil?
+  return override unless base.is_a?(Hash) && override.is_a?(Hash)
+
+  result = base.dup
+  override.each do |key, value|
+    if result[key].is_a?(Hash) && value.is_a?(Hash)
+      result[key] = deep_merge(result[key], value)
+    else
+      result[key] = value
+    end
+  end
+  result
+end
+
+# Map flat frontmatter keys to nested config structure
+# This allows users to use flat keys like 'header_image_url' instead of 'template.header_image_url'
+def map_flat_keys_to_config(frontmatter)
+  return {} if frontmatter.nil? || !frontmatter.is_a?(Hash)
+
+  mapped = {}
+  template_keys = %w[
+    header_image_url header_image_alt header_image_width header_image_height
+    signature_image_url signature_image_alt signature_image_width signature_image_height
+    signature_text primary_footer footer_text
+  ]
+  email_keys = %w[from_name from_email reply_to]
+  markdown_keys = %w[processor]
+  campaign_keys = %w[track_opens track_clicks default_timezone]
+
+  frontmatter.each do |key, value|
+    # Skip keys that are already nested or are special keys (title, status, publish_date)
+    next if %w[title status publish_date].include?(key)
+    next if frontmatter[key].is_a?(Hash)
+
+    if template_keys.include?(key)
+      mapped['template'] ||= {}
+      mapped['template'][key] = value
+    elsif email_keys.include?(key)
+      mapped['email'] ||= {}
+      mapped['email'][key] = value
+    elsif markdown_keys.include?(key)
+      mapped['markdown'] ||= {}
+      mapped['markdown'][key] = value
+    elsif campaign_keys.include?(key)
+      mapped['campaign'] ||= {}
+      mapped['campaign'][key] = value
+    end
+  end
+
+  mapped
+end
+
+# Merge frontmatter YAML into config, with frontmatter taking precedence
+def merge_frontmatter_config(base_config, frontmatter)
+  return base_config if frontmatter.nil? || !frontmatter.is_a?(Hash)
+
+  # Map flat keys to nested structure
+  mapped_flat = map_flat_keys_to_config(frontmatter)
+
+  # Define key arrays for checking
+  template_keys = %w[
+    header_image_url header_image_alt header_image_width header_image_height
+    signature_image_url signature_image_alt signature_image_width signature_image_height
+    signature_text primary_footer footer_text
+  ]
+  email_keys = %w[from_name from_email reply_to]
+  markdown_keys = %w[processor]
+  campaign_keys = %w[track_opens track_clicks default_timezone]
+
+  # Merge nested keys from frontmatter (if any)
+  nested_override = {}
+  frontmatter.each do |key, value|
+    # Skip special keys and already mapped flat keys
+    next if %w[title status publish_date].include?(key)
+    next if template_keys.include?(key) || email_keys.include?(key) ||
+            markdown_keys.include?(key) || campaign_keys.include?(key)
+
+    # If it's a hash, it's a nested structure
+    if value.is_a?(Hash)
+      nested_override[key] = value
+    end
+  end
+
+  # Combine mapped flat keys and nested overrides
+  frontmatter_override = deep_merge(mapped_flat, nested_override)
+
+  # Merge with base config
+  deep_merge(base_config, frontmatter_override)
+end
+
 # Replace template variables
 def replace_template_variables(template, config, styles, title, content, primary_footer_html = '', signature_html = '', footer_html = '')
   # Get primary footer style settings
@@ -726,6 +819,8 @@ if markdown_file
     markdown_content = Regexp.last_match(2)
     begin
       yaml_config = YAML.safe_load(yaml_content)
+      # Merge frontmatter into config (frontmatter takes precedence)
+      config = merge_frontmatter_config(config, yaml_config)
     rescue StandardError => e
       warn "Warning: Could not parse YAML frontmatter: #{e.message}"
     end
