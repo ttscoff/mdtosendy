@@ -102,7 +102,13 @@ end
 
 # Convert Markdown to HTML
 def markdown_to_html(markdown_content, processor = 'apex')
-  stdout, stderr, status = Open3.capture3(processor, stdin_data: markdown_content)
+  # Split processor string into command and arguments
+  processor_parts = processor.strip.split(/\s+/)
+  command = processor_parts[0]
+  args = processor_parts[1..-1] || []
+
+  # Execute with arguments
+  stdout, stderr, status = Open3.capture3(command, *args, stdin_data: markdown_content)
 
   unless status.success?
     warn "Error converting Markdown: #{stderr}"
@@ -448,6 +454,19 @@ def validate_config(config)
     errors << 'paths.template_file is not set'
   end
   errors << 'paths.styles_file is not set' if paths_config['styles_file'].nil? || paths_config['styles_file'].empty?
+
+  # Check Markdown processor
+  markdown_config = config['markdown'] || {}
+  processor = markdown_config['processor'] || 'apex'
+  # Extract command name (first word) for validation
+  command_name = processor.strip.split(/\s+/).first
+  # Check if processor command exists
+  _stdout, _stderr, status = Open3.capture3('sh', '-c', "command -v #{command_name}")
+  unless status.success?
+    errors << "Markdown processor command '#{command_name}' is not installed or not in PATH"
+    errors << "  Install it or configure a different processor in markdown.processor"
+    errors << "  Current configuration: '#{processor}'"
+  end
 
   { errors: errors, warnings: warnings }
 end

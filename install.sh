@@ -56,7 +56,93 @@ else
 	exit 1
 fi
 
-# Step 3: Find best installation directory
+# Step 3: Check for Markdown processors
+info "Checking for Markdown processors..."
+PROCESSORS_FOUND=0
+PROCESSORS_MISSING=()
+
+# Check for apex
+if command -v apex >/dev/null 2>&1; then
+	success "apex is installed"
+	PROCESSORS_FOUND=$((PROCESSORS_FOUND + 1))
+else
+	warning "apex is not installed (recommended)"
+	PROCESSORS_MISSING+=("apex (brew install apex)")
+fi
+
+# Check for kramdown
+if command -v kramdown >/dev/null 2>&1; then
+	success "kramdown is installed"
+	PROCESSORS_FOUND=$((PROCESSORS_FOUND + 1))
+else
+	info "kramdown is not installed (optional: gem install kramdown)"
+	PROCESSORS_MISSING+=("kramdown (gem install kramdown)")
+fi
+
+# Check for multimarkdown
+if command -v multimarkdown >/dev/null 2>&1; then
+	success "multimarkdown is installed"
+	PROCESSORS_FOUND=$((PROCESSORS_FOUND + 1))
+else
+	info "multimarkdown is not installed (optional: brew install multimarkdown)"
+	PROCESSORS_MISSING+=("multimarkdown (brew install multimarkdown)")
+fi
+
+# Check for pandoc
+if command -v pandoc >/dev/null 2>&1; then
+	success "pandoc is installed"
+	PROCESSORS_FOUND=$((PROCESSORS_FOUND + 1))
+else
+	info "pandoc is not installed (optional: brew install pandoc)"
+	PROCESSORS_MISSING+=("pandoc (brew install pandoc)")
+fi
+
+# Check for markdown (common on macOS)
+if command -v markdown >/dev/null 2>&1; then
+	success "markdown is installed"
+	PROCESSORS_FOUND=$((PROCESSORS_FOUND + 1))
+else
+	info "markdown is not installed (optional)"
+	PROCESSORS_MISSING+=("markdown")
+fi
+
+# Check for cmark
+if command -v cmark >/dev/null 2>&1; then
+	success "cmark is installed"
+	PROCESSORS_FOUND=$((PROCESSORS_FOUND + 1))
+else
+	info "cmark is not installed (optional: brew install cmark)"
+	PROCESSORS_MISSING+=("cmark (brew install cmark)")
+fi
+
+# Check for cmark-gfm
+if command -v cmark-gfm >/dev/null 2>&1; then
+	success "cmark-gfm is installed"
+	PROCESSORS_FOUND=$((PROCESSORS_FOUND + 1))
+else
+	info "cmark-gfm is not installed (optional: brew install cmark-gfm)"
+	PROCESSORS_MISSING+=("cmark-gfm (brew install cmark-gfm)")
+fi
+
+# Summary
+echo
+if [ $PROCESSORS_FOUND -eq 0 ]; then
+	error "No Markdown processors found!"
+	echo "You need at least one Markdown processor to use mdtosendy."
+	echo "Recommended: Install apex with: brew install apex"
+	echo
+else
+	success "Found $PROCESSORS_FOUND Markdown processor(s)"
+	if [ ${#PROCESSORS_MISSING[@]} -gt 0 ]; then
+		echo "Optional processors you can install:"
+		for proc in "${PROCESSORS_MISSING[@]}"; do
+			echo "  - $proc"
+		done
+		echo
+	fi
+fi
+
+# Step 4: Find best installation directory
 info "Examining PATH to find best installation location..."
 
 # Common installation directories in order of preference
@@ -109,7 +195,7 @@ if [ ! -d "$INSTALL_DIR" ]; then
 	success "Directory created"
 fi
 
-# Step 4: Link script to installation directory
+# Step 5: Link script to installation directory
 info "Linking script to $INSTALL_DIR/$INSTALL_NAME..."
 if [ -L "$INSTALL_DIR/$INSTALL_NAME" ] || [ -f "$INSTALL_DIR/$INSTALL_NAME" ]; then
 	warning "File already exists at $INSTALL_DIR/$INSTALL_NAME"
@@ -126,12 +212,12 @@ fi
 ln -s "$SCRIPT_DIR/$SCRIPT_NAME" "$INSTALL_DIR/$INSTALL_NAME"
 success "Script linked to $INSTALL_DIR/$INSTALL_NAME"
 
-# Step 5: Create config directory
+# Step 6: Create config directory
 info "Creating config directory: $CONFIG_DIR"
 mkdir -p "$CONFIG_DIR"
 success "Config directory created"
 
-# Step 6: Copy template and example files
+# Step 7: Copy template and example files
 info "Copying template and example files..."
 
 # Copy template
@@ -173,18 +259,18 @@ echo
 info "Next steps:"
 echo
 echo "1. Copy the example files to create your configuration:"
-echo "   ${BLUE}cp $CONFIG_DIR/config.example.yml $CONFIG_DIR/config.yml${NC}"
-echo "   ${BLUE}cp $CONFIG_DIR/styles.example.css $CONFIG_DIR/styles.css${NC}"
+echo -e "   ${BLUE}cp $CONFIG_DIR/config.example.yml $CONFIG_DIR/config.yml${NC}"
+echo -e "   ${BLUE}cp $CONFIG_DIR/styles.example.css $CONFIG_DIR/styles.css${NC}"
 echo
 echo "2. Edit the configuration files:"
-echo "   ${BLUE}$CONFIG_DIR/config.yml${NC} - Add your Sendy API credentials, email settings, etc."
-echo "   ${BLUE}$CONFIG_DIR/styles.css${NC} - Customize your email styles"
+echo -e "   ${BLUE}$CONFIG_DIR/config.yml${NC} - Add your Sendy API credentials, email settings, etc."
+echo -e "   ${BLUE}$CONFIG_DIR/styles.css${NC} - Customize your email styles"
 echo
 echo "3. Test the installation:"
-echo "   ${BLUE}mdtosendy --validate${NC}"
+echo -e "   ${BLUE}mdtosendy --validate${NC}"
 echo
 echo "4. Generate an email:"
-echo "   ${BLUE}mdtosendy your-email.md${NC}"
+echo -e "   ${BLUE}mdtosendy your-email.md${NC}"
 echo
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
 	warning "Note: $INSTALL_DIR is not in your PATH"
