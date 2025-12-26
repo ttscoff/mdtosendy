@@ -11,7 +11,7 @@ require 'openssl'
 require 'time'
 
 # Version
-VERSION = '1.0.0'
+VERSION = '1.0.2'
 
 # Simple CSS parser for converting CSS rules to inline styles
 # Handles basic selectors and properties for email styling
@@ -467,7 +467,7 @@ def validate_config(config)
   _stdout, _stderr, status = Open3.capture3('sh', '-c', "command -v #{command_name}")
   unless status.success?
     errors << "Markdown processor command '#{command_name}' is not installed or not in PATH"
-    errors << "  Install it or configure a different processor in markdown.processor"
+    errors << '  Install it or configure a different processor in markdown.processor'
     errors << "  Current configuration: '#{processor}'"
   end
 
@@ -568,11 +568,11 @@ def deep_merge(base, override)
 
   result = base.dup
   override.each do |key, value|
-    if result[key].is_a?(Hash) && value.is_a?(Hash)
-      result[key] = deep_merge(result[key], value)
-    else
-      result[key] = value
-    end
+    result[key] = if result[key].is_a?(Hash) && value.is_a?(Hash)
+                    deep_merge(result[key], value)
+                  else
+                    value
+                  end
   end
   result
 end
@@ -641,9 +641,7 @@ def merge_frontmatter_config(base_config, frontmatter)
             markdown_keys.include?(key) || campaign_keys.include?(key)
 
     # If it's a hash, it's a nested structure
-    if value.is_a?(Hash)
-      nested_override[key] = value
-    end
+    nested_override[key] = value if value.is_a?(Hash)
   end
 
   # Combine mapped flat keys and nested overrides
@@ -654,7 +652,8 @@ def merge_frontmatter_config(base_config, frontmatter)
 end
 
 # Replace template variables
-def replace_template_variables(template, config, styles, title, content, primary_footer_html = '', signature_html = '', footer_html = '')
+def replace_template_variables(template, config, styles, title, content, primary_footer_html = '', signature_html = '',
+                               footer_html = '')
   # Get primary footer style settings
   primary_footer_style = styles.style_string('.primary-footer')
   primary_footer_padding = extract_padding_top(styles.get_style('.primary-footer')) || '20px'
