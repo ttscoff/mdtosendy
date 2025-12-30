@@ -10,6 +10,9 @@ A Ruby script that converts Markdown files to email-ready HTML and plain text, w
 - 🎨 **CSS to inline styles** - Maintain styles in CSS files, automatically converted to inline styles for email compatibility
 - 📧 **Sendy integration** - Automatically create and schedule campaigns in Sendy
 - 🔧 **Fully configurable** - Customize templates, styles, and settings via YAML and CSS files
+- 🎭 **Multi-template system** - Create multiple email templates with parent/child inheritance
+- 🎨 **Button variants** - Support for primary, secondary, and tertiary button styles
+- 🛠️ **Development mode** - Generate dev preview files with linked CSS for easy styling
 - ✅ **Validation** - Built-in validation for configuration and styles
 - 👀 **Preview mode** - Preview generated emails in your browser before sending
 - 📦 **Easy installation** - One-command install via curl
@@ -177,6 +180,30 @@ mdtosendy --preview your-email.md
 mdtosendy -p your-email.md
 ```
 
+**Use a specific template:**
+```bash
+mdtosendy --template mytemplate your-email.md
+# or
+mdtosendy -t mytemplate your-email.md
+```
+
+**Create a new template:**
+```bash
+mdtosendy --create-template mytemplate
+# or
+mdtosendy -c mytemplate
+```
+
+**Create a child template:**
+```bash
+mdtosendy --create-template darktheme --parent mytemplate
+```
+
+**Generate development preview:**
+```bash
+mdtosendy --dev --template mytemplate
+```
+
 **Combine flags:**
 ```bash
 mdtosendy --validate --preview your-email.md
@@ -253,7 +280,7 @@ Frontmatter values take precedence over values in `config.yml`, allowing you to 
 
 ### Configuration File (`config.yml`)
 
-Located at `~/.config/mdtosendy/config.yml`, organized into sections:
+Located at `~/.config/mdtosendy/config.yml` (base config) and optionally `~/.config/mdtosendy/templates/TEMPLATE_NAME/config.yml` (template-specific), organized into sections:
 
 - **sendy**: API URL, API key, brand ID, list IDs
 - **email**: From name, from email, reply-to address
@@ -262,12 +289,17 @@ Located at `~/.config/mdtosendy/config.yml`, organized into sections:
 - **paths**: File paths for template and styles
 - **markdown**: Markdown processor to use (default: `apex`). See [Prerequisites](#prerequisites) for installation options.
 
+**Configuration Hierarchy:**
+1. Base config (`~/.config/mdtosendy/config.yml`) - Shared settings like Sendy API credentials
+2. Template config (`~/.config/mdtosendy/templates/NAME/config.yml`) - Template-specific overrides
+3. Child template config - Inherits from parent template, can override parent settings
+
 ### Styles File (`styles.css`)
 
-Located at `~/.config/mdtosendy/styles.css`, supports styling for:
+Located at `~/.config/mdtosendy/templates/TEMPLATE_NAME/styles.css` (or `~/.config/mdtosendy/styles.css` for backwards compatibility), supports styling for:
 
 - **Typography**: `h1`, `h2`, `h3`, `p`, `strong`, `em`
-- **Links**: `a`, `a.button`
+- **Links**: `a`, `a.button`, `a.button.secondary`, `a.button.tertiary` (or aliases: `a.btn`, `a.btn.alt`, `a.btn.alt2`)
 - **Images**: `img`, `img.full-width`, `img.float-left`, `img.float-right`
 - **Lists**: `ul`, `ol`, `li`, `li.bullet`, `li.content`
 - **Layout**: `body`, `.wrapper`, `.content-wrapper`
@@ -353,14 +385,92 @@ See the [Prerequisites](#prerequisites) section above for detailed installation 
 - A Markdown processor (Apex recommended, or Kramdown/MultiMarkdown)
 - Git (for installation via bootstrap script)
 
+## Templates
+
+mdtosendy supports multiple email templates, each with its own HTML, CSS, and configuration files.
+
+### Template Structure
+
+Templates are stored in `~/.config/mdtosendy/templates/NAME/` directories:
+- `email-template.html` - HTML template for the email
+- `styles.css` - CSS styles for the template
+- `config.yml` - Template-specific configuration (optional)
+
+### Creating Templates
+
+**Create a new template:**
+```bash
+mdtosendy.rb --create-template mytemplate
+```
+
+This creates a new template directory with default files copied from the `default` template.
+
+**Create a child template:**
+```bash
+mdtosendy.rb --create-template darktheme --parent mytemplate
+```
+
+Child templates inherit configuration and files from their parent. If a file doesn't exist in the child, it uses the parent's version.
+
+### Using Templates
+
+Specify which template to use with the `--template` flag:
+```bash
+mdtosendy.rb --template mytemplate email.md
+```
+
+If no template is specified, the `default` template is used.
+
+### Button Variants
+
+Buttons support multiple style variants:
+
+- **Primary button**: `[CTA](url){:.button}` or `[CTA](url){:.btn}`
+- **Secondary button**: `[CTA](url){:.button .secondary}` or `[CTA](url){:.btn .alt}`
+- **Tertiary button**: `[CTA](url){:.button .tertiary}` or `[CTA](url){:.btn .alt2}`
+
+Define styles in your CSS:
+```css
+a.button {
+  /* Primary button styles */
+}
+
+a.button.secondary,
+a.btn.alt {
+  /* Secondary button styles */
+}
+
+a.button.tertiary,
+a.btn.alt2 {
+  /* Tertiary button styles */
+}
+```
+
+### Development Mode
+
+Generate a development preview file with linked CSS for easier styling:
+```bash
+mdtosendy.rb --dev --template mytemplate
+```
+
+This creates `~/.config/mdtosendy/email-dev.html` with:
+- Linked CSS (not inlined) for easy editing
+- Sample content showing all elements
+- Template information table
+- Proper wrapper classes for accurate styling
+
+Edit the CSS file and refresh the browser to see changes immediately.
+
 ## File Locations
 
 All configuration and template files are stored in:
-- `~/.config/mdtosendy/config.yml` - Configuration file
-- `~/.config/mdtosendy/styles.css` - CSS styles
-- `~/.config/mdtosendy/email-template.html` - Email template
+- `~/.config/mdtosendy/config.yml` - Base configuration file
+- `~/.config/mdtosendy/templates/NAME/` - Template directories
+  - `email-template.html` - HTML template
+  - `styles.css` - CSS styles
+  - `config.yml` - Template-specific configuration (optional)
 
-The script itself can be installed anywhere and will automatically find these files in your home directory's config folder.
+The script automatically migrates old template files from the root config directory to `templates/default/` on first run for backwards compatibility.
 
 ## Validation
 
@@ -384,9 +494,6 @@ Validation runs automatically when processing emails (with `--validate` flag), b
 - Complex CSS features (media queries, pseudo-selectors, etc.) are not supported
 - All styles are converted to inline styles for maximum email client compatibility
 
-## Development
-
-For visual CSS editing, use the `email-dev.html` file in the project directory. It links to your CSS file and allows you to see changes in real-time.
 
 ## License
 

@@ -1133,6 +1133,10 @@ def generate_dev_file(template_name)
 
     [Click This Button](https://example.com){:.button}
 
+    [Secondary Button](https://example.com){:.button .secondary}
+
+    [Tertiary Button](https://example.com){:.button .tertiary}
+
     - First unordered list item
     - Second list item with **bold text**
     - Third list item with a [link](https://example.com)
@@ -1163,9 +1167,14 @@ def generate_dev_file(template_name)
   # Some markdown processors may not preserve the class attribute
   html_doc = Nokogiri::HTML::DocumentFragment.parse(html_content)
   html_doc.css('a').each do |link|
-    # Check if this link should be a button (contains "Click This Button" text)
-    if link.text&.include?('Click This Button') && !link['class']&.include?('button') && !link['class']&.include?('btn')
-      link['class'] = "#{link['class']} button".strip
+    link_text = link.text || ''
+    existing_class = link['class'] || ''
+    # Only add button class if it's missing (markdown processor may have already added classes)
+    # Don't try to infer secondary/tertiary from text - let markdown classes handle that
+    if !existing_class.include?('button') && !existing_class.include?('btn')
+      if link_text.include?('Click This Button') || link_text.include?('Secondary Button') || link_text.include?('Tertiary Button')
+        link['class'] = "#{existing_class} button".strip
+      end
     end
   end
   html_content = html_doc.to_html

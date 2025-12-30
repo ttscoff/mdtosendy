@@ -116,6 +116,44 @@ a.button-fallback a {
   font-size: 13px;
 }
 
+/* Secondary Button */
+a.button.secondary,
+a.btn.alt {
+  background: linear-gradient(to right, #6b9fff, #4d7fff);
+  background-color: #4d7fff;
+  border: 1px solid #3d6fff;
+}
+
+a.button.secondary span,
+a.btn.alt span {
+  color: #ffffff;
+}
+
+a.button.secondary td,
+a.btn.alt td {
+  background: linear-gradient(to right, #6b9fff, #4d7fff);
+  background-color: #4d7fff;
+}
+
+/* Tertiary Button */
+a.button.tertiary,
+a.btn.alt2 {
+  background: linear-gradient(to right, #9f9f9f, #7f7f7f);
+  background-color: #7f7f7f;
+  border: 1px solid #6f6f6f;
+}
+
+a.button.tertiary span,
+a.btn.alt2 span {
+  color: #ffffff;
+}
+
+a.button.tertiary td,
+a.btn.alt2 td {
+  background: linear-gradient(to right, #9f9f9f, #7f7f7f);
+  background-color: #7f7f7f;
+}
+
 /* Images */
 img {
   max-width: 100%;
