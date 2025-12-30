@@ -420,25 +420,28 @@ def apply_email_styles(html_content, styles)
     # Convert margin to padding (margins don't work well in email tables)
     # Combine margin and padding if both exist
     final_padding = if margin && padding
-                     # Combine margin and padding - add them together
-                     combine_spacing(margin, padding)
-                   elsif margin
-                     margin
-                   elsif padding
-                     padding
-                   else
-                     default_padding
-                   end
+                      # Combine margin and padding - add them together
+                      combine_spacing(margin, padding)
+                    elsif margin
+                      margin
+                    elsif padding
+                      padding
+                    else
+                      default_padding
+                    end
 
     # Remove margin and padding from element style
-    filtered_style = element_style.reject { |k, _v| %w[margin padding margin-top margin-bottom margin-left margin-right padding-top padding-bottom padding-left padding-right].include?(k.downcase) }
+    filtered_style = element_style.reject do |k, _v|
+      %w[margin padding margin-top margin-bottom margin-left margin-right padding-top padding-bottom padding-left
+         padding-right].include?(k.downcase)
+    end
 
     [final_padding, filtered_style]
   end
 
   # Helper to combine margin and padding values
   # Simple approach: if both are single values, add them; otherwise use margin
-  def combine_spacing(margin, padding)
+  def combine_spacing(margin, _padding)
     # For now, prefer margin over padding if both exist
     # This could be enhanced to actually add numeric values
     margin
@@ -569,8 +572,34 @@ def apply_email_styles(html_content, styles)
     list.replace(table_html)
   end
 
-  # Convert links with .button class to styled buttons
-  doc.css('a.button').reverse.each do |a|
+  # Helper to determine button style selector based on classes
+  def get_button_selector(classes)
+    return 'a.button' if classes.nil? || classes.empty?
+
+    class_list = classes.split(/\s+/)
+    has_secondary = class_list.include?('secondary') || class_list.include?('alt')
+    has_tertiary = class_list.include?('tertiary') || class_list.include?('alt2')
+    has_btn = class_list.include?('btn')
+
+    if has_tertiary
+      # Try tertiary selectors in order of preference
+      ['a.button.tertiary', 'a.btn.alt2', 'a.button'].find { |sel| !styles.get_style(sel).empty? } || 'a.button'
+    elsif has_secondary
+      # Try secondary selectors in order of preference
+      ['a.button.secondary', 'a.btn.alt', 'a.button'].find { |sel| !styles.get_style(sel).empty? } || 'a.button'
+    elsif has_btn
+      # Try btn selector, fallback to button
+      ['a.btn', 'a.button'].find { |sel| !styles.get_style(sel).empty? } || 'a.button'
+    else
+      'a.button'
+    end
+  end
+
+  # Convert links with .button or .btn class (and variants) to styled buttons
+  button_selectors = ['a.button', 'a.btn', 'a.button.secondary', 'a.btn.alt', 'a.button.tertiary', 'a.btn.alt2']
+  button_links = doc.css(button_selectors.join(', ')).reverse
+
+  button_links.each do |a|
     href = a['href'] || '#'
     link_text = a.inner_text || a.text || ''
 
@@ -578,13 +607,20 @@ def apply_email_styles(html_content, styles)
     escaped_href = href.gsub('&', '&amp;').gsub('<', '&lt;').gsub('>', '&gt;').gsub('"', '&quot;')
     escaped_text = link_text.gsub('&', '&amp;').gsub('<', '&lt;').gsub('>', '&gt;')
 
-    button_style = styles.style_string('a.button')
-    button_td_style = styles.get_style('a.button td')
+    # Determine which button style to use
+    button_selector = get_button_selector(a['class'])
+
+    button_style = styles.style_string(button_selector)
+    button_td_style = styles.get_style("#{button_selector} td")
     button_td_style['background'] || button_td_style['background-color'] || '#FF6B1A'
-    button_td_style_str = styles.style_string('a.button td')
+    button_td_style_str = styles.style_string("#{button_selector} td")
     wrapper_padding = styles.get_style('a.button-wrapper')['padding'] || '0 0 20px 0'
     fallback_style = styles.style_string('a.button-fallback')
     fallback_link_style = styles.style_string('a.button-fallback a')
+
+    # Get span style for this button variant
+    span_selector = "#{button_selector} span"
+    span_style = styles.style_string(span_selector)
 
     button_html = <<~HTML
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -594,7 +630,7 @@ def apply_email_styles(html_content, styles)
               <tr>
                 <td align="center" style="#{button_td_style_str};">
                   <a href="#{escaped_href}" style="#{button_style};">
-                    <span style="#{styles.style_string('a.button span')};">
+                    <span style="#{span_style};">
                       #{escaped_text}
                     </span>
                   </a>
@@ -617,8 +653,8 @@ def apply_email_styles(html_content, styles)
     a.replace(button_html)
   end
 
-  # Style regular link elements (not buttons)
-  doc.css('a:not(.button)').each do |a|
+  # Style regular link elements (not buttons or button variants)
+  doc.css('a:not(.button):not(.btn):not(.secondary):not(.tertiary):not(.alt):not(.alt2)').each do |a|
     existing_style = a['style'] || ''
     link_style = styles.style_string('a')
     a['style'] = "#{existing_style}; #{link_style}".gsub(/^; /, '').gsub(/;\s*;/, ';')
@@ -787,8 +823,17 @@ def validate_styles(styles)
   end
 
   # Check for button styles if buttons are used
-  if styles.get_style('a.button').empty?
-    warnings << "CSS rule for 'a.button' is missing (required if using button links)"
+  # Check primary button (a.button or a.btn)
+  if styles.get_style('a.button').empty? && styles.get_style('a.btn').empty?
+    warnings << "CSS rule for 'a.button' or 'a.btn' is missing (required if using button links)"
+  end
+  # Check secondary button if used
+  if styles.get_style('a.button.secondary').empty? && styles.get_style('a.btn.alt').empty?
+    warnings << "CSS rule for 'a.button.secondary' or 'a.btn.alt' is missing (optional, for secondary buttons)"
+  end
+  # Check tertiary button if used
+  if styles.get_style('a.button.tertiary').empty? && styles.get_style('a.btn.alt2').empty?
+    warnings << "CSS rule for 'a.button.tertiary' or 'a.btn.alt2' is missing (optional, for tertiary buttons)"
   end
 
   { errors: errors, warnings: warnings }
@@ -1074,45 +1119,56 @@ def generate_dev_file(template_name)
 
   # Create sample markdown content
   sample_markdown = <<~MARKDOWN
-# Main Heading (H1)
+    # Main Heading (H1)
 
-This is a paragraph of text. It demonstrates the paragraph styling with proper line height and spacing. You can edit the CSS file and see changes reflected immediately in your browser.
+    This is a paragraph of text. It demonstrates the paragraph styling with proper line height and spacing. You can edit the CSS file and see changes reflected immediately in your browser.
 
-## Secondary Heading (H2)
+    ## Secondary Heading (H2)
 
-Another paragraph with some **bold text** and *italic text* to show text formatting styles.
+    Another paragraph with some **bold text** and *italic text* to show text formatting styles.
 
-### Tertiary Heading (H3)
+    ### Tertiary Heading (H3)
 
-Here's a paragraph with a [regular link](https://example.com) to demonstrate link styling.
+    Here's a paragraph with a [regular link](https://example.com) to demonstrate link styling.
 
-[Click This Button](https://example.com)
+    [Click This Button](https://example.com){:.button}
 
-- First unordered list item
-- Second list item with **bold text**
-- Third list item with a [link](https://example.com)
-- Fourth list item
+    - First unordered list item
+    - Second list item with **bold text**
+    - Third list item with a [link](https://example.com)
+    - Fourth list item
 
-1. First ordered list item
-2. Second ordered item
-3. Third ordered item
+    1. First ordered list item
+    2. Second ordered item
+    3. Third ordered item
 
-Here's a full-width image:
+    Here's a full-width image:
 
-![Placeholder](https://via.placeholder.com/600x300)
+    ![Placeholder](https://via.placeholder.com/600x300)
 
-Here's a floated image on the left:
+    Here's a floated image on the left:
 
-![Placeholder](https://via.placeholder.com/200x200)
+    ![Placeholder](https://via.placeholder.com/200x200)
 
-This paragraph wraps around the floated image. You can see how the image floats to the left and text flows around it. This is useful for creating more interesting layouts in your emails.
+    This paragraph wraps around the floated image. You can see how the image floats to the left and text flows around it. This is useful for creating more interesting layouts in your emails.
 
-This paragraph clears the float.
+    This paragraph clears the float.
   MARKDOWN
 
   # Convert markdown to HTML (but don't apply email styles - let CSS handle it)
   processor = config.dig('markdown', 'processor') || 'apex'
   html_content = markdown_to_html(sample_markdown, processor)
+
+  # Post-process HTML to ensure button class is added to button links
+  # Some markdown processors may not preserve the class attribute
+  html_doc = Nokogiri::HTML::DocumentFragment.parse(html_content)
+  html_doc.css('a').each do |link|
+    # Check if this link should be a button (contains "Click This Button" text)
+    if link.text&.include?('Click This Button') && !link['class']&.include?('button') && !link['class']&.include?('btn')
+      link['class'] = "#{link['class']} button".strip
+    end
+  end
+  html_content = html_doc.to_html
 
   # Get template settings
   header_image_url = config.dig('template', 'header_image_url') || ''
@@ -1154,56 +1210,64 @@ This paragraph clears the float.
 
                   if footer_without_tags =~ %r{<webversion>(.*?)</webversion>}i
                     webversion_content = Regexp.last_match(1)
-                    footer_without_tags = footer_without_tags.gsub(%r{<webversion>.*?</webversion>}i, '___WEBVERSION___')
+                    footer_without_tags = footer_without_tags.gsub(%r{<webversion>.*?</webversion>}i,
+                                                                   '___WEBVERSION___')
                   end
 
                   if footer_without_tags =~ %r{<unsubscribe>(.*?)</unsubscribe>}i
                     unsubscribe_content = Regexp.last_match(1)
-                    footer_without_tags = footer_without_tags.gsub(%r{<unsubscribe>.*?</unsubscribe>}i, '___UNSUBSCRIBE___')
+                    footer_without_tags = footer_without_tags.gsub(%r{<unsubscribe>.*?</unsubscribe>}i,
+                                                                   '___UNSUBSCRIBE___')
                   end
 
                   footer_html = markdown_to_html(footer_without_tags, processor)
                   # Restore webversion and unsubscribe tags
-                  footer_html = footer_html.gsub('___WEBVERSION___', "<webversion>#{webversion_content}</webversion>") if webversion_content
-                  footer_html = footer_html.gsub('___UNSUBSCRIBE___', "<unsubscribe>#{unsubscribe_content}</unsubscribe>") if unsubscribe_content
+                  if webversion_content
+                    footer_html = footer_html.gsub('___WEBVERSION___',
+                                                   "<webversion>#{webversion_content}</webversion>")
+                  end
+                  if unsubscribe_content
+                    footer_html = footer_html.gsub('___UNSUBSCRIBE___',
+                                                   "<unsubscribe>#{unsubscribe_content}</unsubscribe>")
+                  end
                   footer_html
                 end
 
   # Create template info table HTML
   template_info_html = <<~HTML
-                            <!-- Template Info Table -->
-                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 20px; background-color: #e8e8e8; border: 1px solid #d0d0d0;">
-                                <tr>
-                                    <td style="padding: 15px 20px;">
-                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                                            <tr>
-                                                <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
-                                                    template:
-                                                </td>
-                                                <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
-                                                    #{template_name}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
-                                                    template path:
-                                                </td>
-                                                <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
-                                                    #{template_path_display}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
-                                                    style:
-                                                </td>
-                                                <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
-                                                    #{css_path_display}
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    </td>
-                                </tr>
-                            </table>
+    <!-- Template Info Table -->
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 20px; background-color: #e8e8e8; border: 1px solid #d0d0d0;">
+        <tr>
+            <td style="padding: 15px 20px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                    <tr>
+                        <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
+                            template:
+                        </td>
+                        <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
+                            #{template_name}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
+                            template path:
+                        </td>
+                        <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
+                            #{template_path_display}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
+                            style:
+                        </td>
+                        <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
+                            #{css_path_display}
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
   HTML
 
   # Add template info to content
@@ -1214,10 +1278,10 @@ This paragraph clears the float.
   template_vars = {
     'TITLE' => 'Email Template Development Preview',
     'CONTENT' => html_content,
-    'BODY_STYLE' => '',  # Let CSS handle it
-    'WRAPPER_STYLE' => '',  # Let CSS handle it
-    'CONTENT_WRAPPER_STYLE' => '',  # Let CSS handle it
-    'FONT_FAMILY' => '',  # Let CSS handle it
+    'BODY_STYLE' => '', # Let CSS handle it
+    'WRAPPER_STYLE' => '', # Let CSS handle it
+    'CONTENT_WRAPPER_STYLE' => '', # Let CSS handle it
+    'FONT_FAMILY' => '', # Let CSS handle it
     'HEADER_IMAGE_URL' => header_image_url,
     'HEADER_IMAGE_ALT' => header_image_alt,
     'HEADER_IMAGE_WIDTH' => header_image_width,
@@ -1227,11 +1291,11 @@ This paragraph clears the float.
     'SIGNATURE_IMAGE_WIDTH' => signature_image_width,
     'SIGNATURE_IMAGE_HEIGHT' => signature_image_height,
     'SIGNATURE_TEXT' => signature_text_html,
-    'SIGNATURE_STYLE' => '',  # Let CSS handle it
+    'SIGNATURE_STYLE' => '', # Let CSS handle it
     'SIGNATURE_TABLE_PADDING' => '20px',
     'PRIMARY_FOOTER' => '',
-    'FOOTER_STYLE' => '',  # Let CSS handle it
-    'FOOTER_TEXT_STYLE' => '',  # Let CSS handle it
+    'FOOTER_STYLE' => '', # Let CSS handle it
+    'FOOTER_TEXT_STYLE' => '', # Let CSS handle it
     'FOOTER_TEXT' => footer_text
   }
 
@@ -1240,7 +1304,7 @@ This paragraph clears the float.
     dev_html.gsub!("{{#{key}}}", value.to_s)
   end
 
-  # Parse as full document first to add CSS link to head
+  # Parse as full document first to add CSS link to head and add classes for CSS styling
   doc_full = Nokogiri::HTML::Document.parse(dev_html)
   head = doc_full.at_css('head')
   if head && !head.at_css('link[rel="stylesheet"]')
@@ -1248,8 +1312,17 @@ This paragraph clears the float.
     link['rel'] = 'stylesheet'
     link['href'] = css_path
     head.add_child(link)
-    dev_html = doc_full.to_html
   end
+
+  # Add wrapper class to outer wrapper table
+  wrapper_table = doc_full.at_css('table[role="presentation"][width="100%"]')
+  wrapper_table['class'] = 'wrapper' if wrapper_table && !wrapper_table['class']
+
+  # Add content-wrapper class to main content table (width="600")
+  content_table = doc_full.at_css('table[role="presentation"][width="600"]')
+  content_table['class'] = 'content-wrapper' if content_table && !content_table['class']
+
+  dev_html = doc_full.to_html
 
   # Replace signature div with paragraph for dev file (so it can be styled with CSS)
   # After template variable replacement, the signature div will have style="" and contain the signature text
@@ -1305,6 +1378,15 @@ This paragraph clears the float.
     # Add body padding
     existing_style = body['style'] || ''
     body['style'] = "#{existing_style}; padding: 20px;".gsub(/^; /, '')
+    # Ensure wrapper and content-wrapper classes are still present after body update
+    wrapper_table = doc_full.at_css('table[role="presentation"][width="100%"]')
+    if wrapper_table && !wrapper_table['class']&.include?('wrapper')
+      wrapper_table['class'] = "#{wrapper_table['class']} wrapper".strip
+    end
+    content_table = doc_full.at_css('table[role="presentation"][width="600"]')
+    if content_table && !content_table['class']&.include?('content-wrapper')
+      content_table['class'] = "#{content_table['class']} content-wrapper".strip
+    end
     dev_html = doc_full.to_html
   else
     # Fallback: use fragment HTML and add body padding
