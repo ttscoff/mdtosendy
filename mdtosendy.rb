@@ -9,9 +9,10 @@ require 'net/http'
 require 'net/https'
 require 'openssl'
 require 'time'
+require 'fileutils'
 
 # Version
-VERSION = '1.0.3'
+VERSION = '1.0.4'
 
 # Simple CSS parser for converting CSS rules to inline styles
 # Handles basic selectors and properties for email styling
@@ -68,8 +69,234 @@ def config_dir
   File.join(Dir.home, '.config', 'mdtosendy')
 end
 
-# Load configuration from config.yml
-def load_config
+# Get templates directory
+def templates_dir
+  File.join(config_dir, 'templates')
+end
+
+# Get template directory for a specific template name
+def template_dir(template_name)
+  File.join(templates_dir, template_name)
+end
+
+# Get default template directory
+def default_template_dir
+  template_dir('default')
+end
+
+# Migrate old template files to templates/default for backwards compatibility
+def migrate_old_template_files
+  old_template_file = File.join(config_dir, 'email-template.html')
+  old_styles_file = File.join(config_dir, 'styles.css')
+
+  # Check if old files exist and default template doesn't exist yet
+  return unless (File.exist?(old_template_file) || File.exist?(old_styles_file)) && !Dir.exist?(default_template_dir)
+
+  puts 'Migrating template files to new template system...'
+
+  # Create templates directory if it doesn't exist
+  FileUtils.mkdir_p(templates_dir)
+
+  # Create default template directory
+  FileUtils.mkdir_p(default_template_dir)
+
+  # Move template file if it exists
+  if File.exist?(old_template_file)
+    new_template_file = File.join(default_template_dir, 'email-template.html')
+    FileUtils.mv(old_template_file, new_template_file)
+    puts "  Moved #{old_template_file} -> #{new_template_file}"
+  end
+
+  # Move styles file if it exists
+  if File.exist?(old_styles_file)
+    new_styles_file = File.join(default_template_dir, 'styles.css')
+    FileUtils.mv(old_styles_file, new_styles_file)
+    puts "  Moved #{old_styles_file} -> #{new_styles_file}"
+  end
+
+  # Create blank config.yml for default template
+  default_config_file = File.join(default_template_dir, 'config.yml')
+  unless File.exist?(default_config_file)
+    config_content = "# Template-specific configuration\n" \
+                     "# This file overrides values from ~/.config/mdtosendy/config.yml\n" \
+                     "# Leave empty to use base config only\n"
+    File.write(default_config_file, config_content)
+    puts "  Created blank config file: #{default_config_file}"
+  end
+
+  puts "\nNote: Template files have been moved to #{default_template_dir}/"
+  puts "You can now create additional templates in #{templates_dir}/"
+  puts "Use --template NAME to specify a template, or --create-template NAME to create a new one.\n\n"
+end
+
+# Ensure default template exists, create from example files if needed
+def ensure_default_template_exists
+  return if Dir.exist?(default_template_dir)
+
+  # Check if we're in the source directory and example files exist
+  source_dir = File.dirname(File.expand_path(__FILE__))
+  example_template = File.join(source_dir, 'email-template.html')
+  example_styles = File.join(source_dir, 'styles.example.css')
+
+  # Create templates directory if it doesn't exist
+  FileUtils.mkdir_p(templates_dir)
+  FileUtils.mkdir_p(default_template_dir)
+
+  # Copy example files if they exist
+  if File.exist?(example_template)
+    default_template_file = File.join(default_template_dir, 'email-template.html')
+    FileUtils.cp(example_template, default_template_file)
+  end
+
+  return unless File.exist?(example_styles)
+
+  default_styles_file = File.join(default_template_dir, 'styles.css')
+  FileUtils.cp(example_styles, default_styles_file)
+
+  # Create blank config.yml for default template
+  default_config_file = File.join(default_template_dir, 'config.yml')
+  return if File.exist?(default_config_file)
+
+  config_content = "# Template-specific configuration\n" \
+                   "# This file overrides values from ~/.config/mdtosendy/config.yml\n" \
+                   "# Leave empty to use base config only\n"
+  File.write(default_config_file, config_content)
+end
+
+# Create a new template from default
+def create_template(template_name, parent_name = nil)
+  if template_name.nil? || template_name.strip.empty?
+    warn 'Error: Template name is required for --create-template'
+    exit 1
+  end
+
+  # Sanitize template name (remove invalid characters)
+  sanitized_name = template_name.strip.gsub(/[^a-zA-Z0-9._-]/, '')
+  if sanitized_name != template_name.strip
+    warn "Warning: Template name sanitized from '#{template_name}' to '#{sanitized_name}'"
+  end
+
+  new_template_dir = template_dir(sanitized_name)
+
+  if Dir.exist?(new_template_dir)
+    warn "Error: Template '#{sanitized_name}' already exists at #{new_template_dir}"
+    exit 1
+  end
+
+  # If parent is specified, create child template
+  if parent_name
+    sanitized_parent = parent_name.strip.gsub(/[^a-zA-Z0-9._-]/, '')
+    parent_dir = template_dir(sanitized_parent)
+
+    unless Dir.exist?(parent_dir)
+      warn "Error: Parent template '#{sanitized_parent}' not found at #{parent_dir}"
+      exit 1
+    end
+
+    # Create new template directory
+    FileUtils.mkdir_p(new_template_dir)
+
+    # Create config.yml with parent reference and commented parent config
+    parent_config_file = File.join(parent_dir, 'config.yml')
+    new_config_file = File.join(new_template_dir, 'config.yml')
+
+    config_content = "parent: #{sanitized_parent}\n\n"
+
+    # Add parent config as comments if it exists
+    if File.exist?(parent_config_file)
+      parent_config_content = File.read(parent_config_file)
+      config_content += "# Parent template config (commented out):\n"
+      parent_config_content.each_line do |line|
+        config_content += "# #{line}"
+      end
+    end
+
+    File.write(new_config_file, config_content)
+    puts "Created child template '#{sanitized_name}' with parent '#{sanitized_parent}'"
+    puts "Config file: #{new_config_file}"
+    puts "\nTemplate '#{sanitized_name}' created successfully!"
+    puts 'Edit the config file to override parent settings.'
+    puts "Add HTML/CSS files to override parent's files, or leave them out to use parent's.\n"
+    return
+  end
+
+  # Ensure default template exists first
+  default_dir = default_template_dir
+  unless Dir.exist?(default_dir)
+    warn "Error: Default template not found. Please ensure #{default_dir} exists."
+    exit 1
+  end
+
+  # Create new template directory
+  FileUtils.mkdir_p(new_template_dir)
+
+  # Copy default template files
+  default_template_file = File.join(default_dir, 'email-template.html')
+  default_styles_file = File.join(default_dir, 'styles.css')
+
+  if File.exist?(default_template_file)
+    new_template_file = File.join(new_template_dir, 'email-template.html')
+    FileUtils.cp(default_template_file, new_template_file)
+    puts "Created template file: #{new_template_file}"
+  end
+
+  if File.exist?(default_styles_file)
+    new_styles_file = File.join(new_template_dir, 'styles.css')
+    FileUtils.cp(default_styles_file, new_styles_file)
+    puts "Created styles file: #{new_styles_file}"
+  end
+
+  # Copy or create config.yml
+  default_config_file = File.join(default_dir, 'config.yml')
+  new_config_file = File.join(new_template_dir, 'config.yml')
+  if File.exist?(default_config_file)
+    FileUtils.cp(default_config_file, new_config_file)
+    puts "Created config file: #{new_config_file}"
+  else
+    config_content = "# Template-specific configuration\n" \
+                     "# This file overrides values from ~/.config/mdtosendy/config.yml\n" \
+                     "# Leave empty to use base config only\n"
+    File.write(new_config_file, config_content)
+    puts "Created blank config file: #{new_config_file}"
+  end
+
+  puts "\nTemplate '#{sanitized_name}' created successfully!"
+  puts "Edit the files in #{new_template_dir}/ to customize your template."
+  puts "Use --template #{sanitized_name} to use this template.\n"
+end
+
+# Load template-specific configuration from template directory
+# Handles parent templates recursively
+def load_template_config(template_name, visited = [])
+  # Prevent infinite loops
+  if visited.include?(template_name)
+    warn "Warning: Circular parent reference detected in template '#{template_name}'"
+    return {}
+  end
+  visited << template_name
+
+  template_config_file = File.join(template_dir(template_name), 'config.yml')
+
+  return {} unless File.exist?(template_config_file)
+
+  template_config = YAML.safe_load(File.read(template_config_file)) || {}
+
+  # If this template has a parent, load parent config first and merge
+  if template_config['parent']
+    parent_name = template_config['parent']
+    parent_config = load_template_config(parent_name, visited)
+    # Merge parent config first, then child config overrides
+    template_config = deep_merge(parent_config, template_config)
+  end
+
+  template_config
+rescue StandardError => e
+  warn "Warning: Error loading template config from #{template_config_file}: #{e.message}"
+  {}
+end
+
+# Load base configuration from config.yml
+def load_base_config
   config_file = File.join(config_dir, 'config.yml')
 
   unless File.exist?(config_file)
@@ -79,21 +306,61 @@ def load_config
     exit 1
   end
 
-  YAML.safe_load(File.read(config_file))
+  YAML.safe_load(File.read(config_file)) || {}
 rescue StandardError => e
   warn "Error loading configuration: #{e.message}"
   exit 1
 end
 
-# Load CSS styles from styles.css
-def load_styles
-  config = load_config
-  styles_file = File.join(config_dir, config.dig('paths', 'styles_file') || 'styles.css')
+# Load configuration, merging base config with template-specific config
+# Template config overrides base config
+def load_config(template_name = 'default')
+  base_config = load_base_config
+  template_config = load_template_config(template_name)
 
-  unless File.exist?(styles_file)
-    warn "Error: Styles file not found: #{styles_file}"
-    warn "Please create #{styles_file} with your styles."
-    warn 'You can use styles.example.css as a template.'
+  # Deep merge template config over base config
+  deep_merge(base_config, template_config)
+end
+
+# Find template file (HTML or CSS) with parent fallback
+# Returns the file path if found, nil otherwise
+def find_template_file(template_name, filename, visited = [])
+  # Prevent infinite loops
+  return nil if visited.include?(template_name)
+
+  visited << template_name
+
+  template_file = File.join(template_dir(template_name), filename)
+  return template_file if File.exist?(template_file)
+
+  # Check parent template if file doesn't exist
+  template_config_file = File.join(template_dir(template_name), 'config.yml')
+  if File.exist?(template_config_file)
+    begin
+      template_config = YAML.safe_load(File.read(template_config_file)) || {}
+      return find_template_file(template_config['parent'], filename, visited) if template_config['parent']
+    rescue StandardError
+      # Ignore errors, just return nil
+    end
+  end
+
+  nil
+end
+
+# Load CSS styles from styles.css
+def load_styles(template_name = 'default')
+  config = load_config(template_name)
+  styles_filename = config.dig('paths', 'styles_file') || 'styles.css'
+  styles_file = find_template_file(template_name, styles_filename)
+
+  unless styles_file && File.exist?(styles_file)
+    warn "Error: Styles file not found: #{styles_filename}"
+    warn "Please create #{File.join(template_dir(template_name), styles_filename)} with your styles."
+    if template_name == 'default'
+      warn 'You can use styles.example.css as a template.'
+    else
+      warn "Or create a new template with: #{$0} --create-template #{template_name}"
+    end
     exit 1
   end
 
@@ -496,22 +763,23 @@ def validate_styles(styles)
 end
 
 # Validate files exist
-def validate_files(config)
+def validate_files(config, template_name = 'default')
   errors = []
 
-  # Check template file (in config directory)
-  template_file = File.join(config_dir, config.dig('paths', 'template_file') || 'email-template.html')
+  # Check template file (in template directory)
+  template_directory = template_dir(template_name)
+  template_file = File.join(template_directory, config.dig('paths', 'template_file') || 'email-template.html')
   errors << "Template file not found: #{template_file}" unless File.exist?(template_file)
 
-  # Check styles file (in config directory)
-  styles_file = File.join(config_dir, config.dig('paths', 'styles_file') || 'styles.css')
+  # Check styles file (in template directory)
+  styles_file = File.join(template_directory, config.dig('paths', 'styles_file') || 'styles.css')
   errors << "Styles file not found: #{styles_file}" unless File.exist?(styles_file)
 
   { errors: errors, warnings: [] }
 end
 
 # Run all validations
-def run_validation(config, styles)
+def run_validation(config, styles, template_name = 'default')
   puts "Validating configuration and styles...\n\n"
 
   all_errors = []
@@ -528,7 +796,7 @@ def run_validation(config, styles)
   all_warnings.concat(styles_result[:warnings])
 
   # Validate files
-  files_result = validate_files(config)
+  files_result = validate_files(config, template_name)
   all_errors.concat(files_result[:errors])
   all_warnings.concat(files_result[:warnings])
 
@@ -735,32 +1003,70 @@ def parse_args
   args = ARGV.dup
   flags = {
     validate: false,
-    preview: false
+    preview: false,
+    template: 'default',
+    create_template: nil,
+    parent: nil
   }
 
   # Remove flags from args
-  args.reject! do |arg|
+  i = 0
+  while i < args.length
+    arg = args[i]
     case arg
     when '--validate', '-v'
       flags[:validate] = true
-      true
+      args.delete_at(i)
     when '--preview', '-p'
       flags[:preview] = true
-      true
+      args.delete_at(i)
+    when '--template', '-t'
+      if i + 1 < args.length
+        flags[:template] = args[i + 1]
+        args.delete_at(i + 1)
+        args.delete_at(i)
+      else
+        warn 'Error: --template requires a template name'
+        exit 1
+      end
+    when '--create-template', '-c'
+      if i + 1 < args.length
+        flags[:create_template] = args[i + 1]
+        args.delete_at(i + 1)
+        args.delete_at(i)
+      else
+        warn 'Error: --create-template requires a template name'
+        exit 1
+      end
+    when '--parent'
+      if i + 1 < args.length
+        flags[:parent] = args[i + 1]
+        args.delete_at(i + 1)
+        args.delete_at(i)
+      else
+        warn 'Error: --parent requires a parent template name'
+        exit 1
+      end
     when '--help', '-h'
       puts "Usage: #{$0} [OPTIONS] <markdown_file>"
       puts "\nOptions:"
-      puts '  --validate, -v    Validate configuration and styles without processing'
-      puts '  --preview, -p     Open generated HTML in browser after processing'
-      puts '  --help, -h        Show this help message'
+      puts '  --validate, -v           Validate configuration and styles without processing'
+      puts '  --preview, -p            Open generated HTML in browser after processing'
+      puts '  --template NAME, -t      Use template NAME (default: default)'
+      puts '  --create-template NAME, -c   Create a new template directory with default files'
+      puts '  --parent NAME             Use with --create-template to create a child template'
+      puts '  --help, -h                Show this help message'
       puts "\nExamples:"
-      puts "  #{$0} email.md              # Generate HTML and TXT files"
-      puts "  #{$0} --validate             # Validate configuration only"
-      puts "  #{$0} --preview email.md     # Generate and preview in browser"
-      puts "  #{$0} -v -p email.md         # Validate, generate, and preview"
+      puts "  #{$0} email.md                           # Generate HTML and TXT files"
+      puts "  #{$0} --validate                          # Validate configuration only"
+      puts "  #{$0} --preview email.md                  # Generate and preview in browser"
+      puts "  #{$0} --template brettterpstra.com email.md  # Use specific template"
+      puts "  #{$0} --create-template mytemplate        # Create a new template"
+      puts "  #{$0} --create-template child --parent base  # Create child template"
+      puts "  #{$0} -v -p email.md                      # Validate, generate, and preview"
       exit 0
     else
-      false
+      i += 1
     end
   end
 
@@ -772,13 +1078,28 @@ parsed = parse_args
 flags = parsed[:flags]
 markdown_file = parsed[:markdown_file]
 
+# Migrate old template files for backwards compatibility
+migrate_old_template_files
+
+# Ensure default template exists
+ensure_default_template_exists
+
+# Handle --create-template flag
+if flags[:create_template]
+  create_template(flags[:create_template], flags[:parent])
+  exit 0
+end
+
+# Get template name
+template_name = flags[:template] || 'default'
+
 # Load configuration and styles
-config = load_config
-styles = load_styles
+config = load_config(template_name)
+styles = load_styles(template_name)
 
 # Run validation if requested
 if flags[:validate] && markdown_file.nil?
-  success = run_validation(config, styles)
+  success = run_validation(config, styles, template_name)
   exit(success ? 0 : 1)
 end
 
@@ -791,7 +1112,7 @@ if markdown_file
 
   # Run validation if requested (but continue processing)
   if flags[:validate]
-    success = run_validation(config, styles)
+    success = run_validation(config, styles, template_name)
     puts "\nContinuing with processing despite validation issues...\n\n" unless success
   end
 
@@ -801,11 +1122,18 @@ if markdown_file
   html_file = File.join(output_dir, "#{base_name}.html")
   txt_file = File.join(output_dir, "#{base_name}.txt")
 
-  # Read template
-  template_file = File.join(config_dir, config.dig('paths', 'template_file') || 'email-template.html')
-  unless File.exist?(template_file)
-    warn "Error: Template file not found: #{template_file}"
-    warn "Please ensure email-template.html exists in #{config_dir}"
+  # Read template from template directory (with parent fallback)
+  template_filename = config.dig('paths', 'template_file') || 'email-template.html'
+  template_file = find_template_file(template_name, template_filename)
+
+  unless template_file && File.exist?(template_file)
+    warn "Error: Template file not found: #{template_filename}"
+    warn "Please ensure #{template_filename} exists in #{template_dir(template_name)}"
+    if template_name == 'default'
+      warn "Or create a new template with: #{$0} --create-template default"
+    else
+      warn "Or create a new template with: #{$0} --create-template #{template_name}"
+    end
     exit 1
   end
 
@@ -854,7 +1182,7 @@ if markdown_file
       # It's HTML, just apply styles
       primary_footer_html = apply_email_styles(primary_footer_raw, styles)
     else
-      # It's Markdown, convert to HTML then apply styles
+      # It"s Markdown, convert to HTML then apply styles"
       primary_footer_markdown_html = markdown_to_html(primary_footer_raw, processor)
       primary_footer_html = apply_email_styles(primary_footer_markdown_html, styles)
     end
@@ -948,7 +1276,7 @@ if markdown_file
       doc = Nokogiri::HTML::DocumentFragment.parse(signature_text_raw)
       signature_text = doc.text.strip
     else
-      # It's Markdown, convert to plain text
+      # It"s Markdown, convert to plain text"
       signature_text = markdown_to_plain_text(signature_text_raw)
     end
   end
@@ -1030,14 +1358,20 @@ elsif ARGV.empty?
   # Show usage if no arguments provided
   puts "Usage: #{$0} [OPTIONS] <markdown_file>"
   puts "\nOptions:"
-  puts '  --validate, -v    Validate configuration and styles without processing'
-  puts '  --preview, -p     Open generated HTML in browser after processing'
-  puts '  --help, -h        Show this help message'
+  puts '  --validate, -v           Validate configuration and styles without processing'
+  puts '  --preview, -p            Open generated HTML in browser after processing'
+  puts '  --template NAME, -t      Use template NAME (default: default)'
+  puts '  --create-template NAME, -c   Create a new template directory with default files'
+  puts '  --parent NAME             Use with --create-template to create a child template'
+  puts '  --help, -h                Show this help message'
   puts "\nExamples:"
-  puts "  #{$0} email.md              # Generate HTML and TXT files"
-  puts "  #{$0} --validate             # Validate configuration only"
-  puts "  #{$0} --preview email.md     # Generate and preview in browser"
-  puts "  #{$0} -v -p email.md         # Validate, generate, and preview"
+  puts "  #{$0} email.md                           # Generate HTML and TXT files"
+  puts "  #{$0} --validate                          # Validate configuration only"
+  puts "  #{$0} --preview email.md                  # Generate and preview in browser"
+  puts "  #{$0} --template brettterpstra.com email.md  # Use specific template"
+  puts "  #{$0} --create-template mytemplate        # Create a new template"
+  puts "  #{$0} --create-template child --parent base  # Create child template"
+  puts "  #{$0} -v -p email.md                      # Validate, generate, and preview"
   exit 0
 else
   warn 'Error: Markdown file is required (unless using --validate only)'
