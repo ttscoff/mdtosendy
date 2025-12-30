@@ -1123,17 +1123,50 @@ This paragraph clears the float.
   signature_image_alt = config.dig('template', 'signature_image_alt') || 'Signature'
   signature_image_width = (config.dig('template', 'signature_image_width') || 98).to_s
   signature_image_height = (config.dig('template', 'signature_image_height') || 98).to_s
-  signature_text = config.dig('template', 'signature_text') || '-Brett'
-  # Convert signature text to support <br> tags (replace newlines with <br>)
-  signature_text_html = signature_text.gsub(/\n/, '<br>')
+  # Get markdown processor
+  processor = config.dig('markdown', 'processor') || 'apex'
 
-  # Get footer text for dev preview
+  # Process signature text through markdown processor
+  signature_text_raw = config.dig('template', 'signature_text') || '-Brett'
+  signature_text_html = if signature_text_raw.strip.empty?
+                          '-Brett'
+                        elsif signature_text_raw.strip =~ /^<[a-z]/i && signature_text_raw.strip =~ %r{</[a-z]>.*$}i
+                          # It's HTML, use as-is
+                          signature_text_raw
+                        else
+                          # It's Markdown, convert to HTML
+                          markdown_to_html(signature_text_raw, processor)
+                        end
+
+  # Process footer text through markdown processor
   footer_text_raw = config.dig('template', 'footer_text') || ''
   footer_text = if footer_text_raw.strip.empty?
                   "Copyright © #{Time.now.year} Your Name<br>123 Main St<br>City, State ZIP<br><br><webversion>View on the web</webversion> | <unsubscribe>Unsubscribe</unsubscribe>"
+                elsif footer_text_raw.strip =~ /^<[a-z]/i && footer_text_raw.strip =~ %r{</[a-z]>.*$}i
+                  # It's HTML, use as-is (but preserve webversion/unsubscribe tags)
+                  footer_text_raw
                 else
-                  # Convert newlines to <br> tags
-                  footer_text_raw.gsub(/\n/, '<br>')
+                  # It's Markdown, convert to HTML
+                  # Extract webversion and unsubscribe tags first
+                  webversion_content = ''
+                  unsubscribe_content = ''
+                  footer_without_tags = footer_text_raw.dup
+
+                  if footer_without_tags =~ %r{<webversion>(.*?)</webversion>}i
+                    webversion_content = Regexp.last_match(1)
+                    footer_without_tags = footer_without_tags.gsub(%r{<webversion>.*?</webversion>}i, '___WEBVERSION___')
+                  end
+
+                  if footer_without_tags =~ %r{<unsubscribe>(.*?)</unsubscribe>}i
+                    unsubscribe_content = Regexp.last_match(1)
+                    footer_without_tags = footer_without_tags.gsub(%r{<unsubscribe>.*?</unsubscribe>}i, '___UNSUBSCRIBE___')
+                  end
+
+                  footer_html = markdown_to_html(footer_without_tags, processor)
+                  # Restore webversion and unsubscribe tags
+                  footer_html = footer_html.gsub('___WEBVERSION___', "<webversion>#{webversion_content}</webversion>") if webversion_content
+                  footer_html = footer_html.gsub('___UNSUBSCRIBE___', "<unsubscribe>#{unsubscribe_content}</unsubscribe>") if unsubscribe_content
+                  footer_html
                 end
 
   # Create template info table HTML
@@ -1207,10 +1240,23 @@ This paragraph clears the float.
     dev_html.gsub!("{{#{key}}}", value.to_s)
   end
 
+  # Parse as full document first to add CSS link to head
+  doc_full = Nokogiri::HTML::Document.parse(dev_html)
+  head = doc_full.at_css('head')
+  if head && !head.at_css('link[rel="stylesheet"]')
+    link = Nokogiri::XML::Node.new('link', doc_full)
+    link['rel'] = 'stylesheet'
+    link['href'] = css_path
+    head.add_child(link)
+    dev_html = doc_full.to_html
+  end
+
   # Replace signature div with paragraph for dev file (so it can be styled with CSS)
   # After template variable replacement, the signature div will have style="" and contain the signature text
   # Use Nokogiri to reliably find and replace
-  doc = Nokogiri::HTML::DocumentFragment.parse(dev_html)
+  # Parse as fragment for body content manipulation
+  body_content = doc_full.at_css('body')&.inner_html || dev_html
+  doc = Nokogiri::HTML::DocumentFragment.parse(body_content)
 
   # Find signature div (it's in a td that's next to the signature image)
   # Look for a div with empty style that's in a td containing a table with signature image
@@ -1252,13 +1298,19 @@ This paragraph clears the float.
     end
   end
 
-  dev_html = doc.to_html
-
-  # Add CSS link to head (before closing </head>)
-  dev_html = dev_html.sub('</head>', "    <link rel=\"stylesheet\" href=\"#{css_path}\">\n</head>")
-
-  # Add dev-only body padding style
-  dev_html = dev_html.sub('<body', '<body style="padding: 20px;"')
+  # Update body content with modified signature/footer
+  body = doc_full.at_css('body')
+  if body
+    body.inner_html = doc.to_html
+    # Add body padding
+    existing_style = body['style'] || ''
+    body['style'] = "#{existing_style}; padding: 20px;".gsub(/^; /, '')
+    dev_html = doc_full.to_html
+  else
+    # Fallback: use fragment HTML and add body padding
+    dev_html = doc.to_html
+    dev_html = dev_html.sub(/<body[^>]*>/, '<body style="padding: 20px;">')
+  end
   dev_file = File.join(config_dir, 'email-dev.html')
   File.write(dev_file, dev_html)
   puts "Generated email-dev.html at #{dev_file}"
