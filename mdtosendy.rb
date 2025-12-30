@@ -400,13 +400,54 @@ def apply_email_styles(html_content, styles)
     merged.map { |k, v| "#{k}: #{v}" }.join('; ')
   end
 
+  # Helper to extract margin/padding and convert to table cell padding
+  # Returns the padding value to use for the td, and a filtered style string without margin/padding
+  def extract_spacing_for_table(selector, styles, default_padding = '0 0 20px 0')
+    # First check for explicit td selector (backwards compatibility)
+    td_style = styles.get_style("#{selector} td")
+    if td_style['padding']
+      element_style = styles.get_style(selector)
+      # Remove margin/padding from element style
+      filtered_style = element_style.reject { |k, _v| %w[margin padding].include?(k.downcase) }
+      return [td_style['padding'], filtered_style]
+    end
+
+    # Extract margin and padding from element style
+    element_style = styles.get_style(selector)
+    margin = element_style['margin'] || element_style['margin-top'] || element_style['margin-bottom'] || nil
+    padding = element_style['padding'] || element_style['padding-top'] || element_style['padding-bottom'] || nil
+
+    # Convert margin to padding (margins don't work well in email tables)
+    # Combine margin and padding if both exist
+    final_padding = if margin && padding
+                     # Combine margin and padding - add them together
+                     combine_spacing(margin, padding)
+                   elsif margin
+                     margin
+                   elsif padding
+                     padding
+                   else
+                     default_padding
+                   end
+
+    # Remove margin and padding from element style
+    filtered_style = element_style.reject { |k, _v| %w[margin padding margin-top margin-bottom margin-left margin-right padding-top padding-bottom padding-left padding-right].include?(k.downcase) }
+
+    [final_padding, filtered_style]
+  end
+
+  # Helper to combine margin and padding values
+  # Simple approach: if both are single values, add them; otherwise use margin
+  def combine_spacing(margin, padding)
+    # For now, prefer margin over padding if both exist
+    # This could be enhanced to actually add numeric values
+    margin
+  end
+
   # Style h1 elements
   doc.css('h1').reverse.each do |h1|
-    styles.get_style('h1')
-    h1['style'] = styles.style_string('h1')
-
-    td_style = styles.get_style('h1 td')
-    td_padding = td_style['padding'] || '0 0 20px 0'
+    td_padding, filtered_style = extract_spacing_for_table('h1', styles, '0 0 20px 0')
+    h1['style'] = filtered_style.map { |k, v| "#{k}: #{v}" }.join('; ')
 
     table_html = <<~HTML
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -423,10 +464,8 @@ def apply_email_styles(html_content, styles)
 
   # Style h2 elements
   doc.css('h2').reverse.each do |h2|
-    h2['style'] = styles.style_string('h2')
-
-    td_style = styles.get_style('h2 td')
-    td_padding = td_style['padding'] || '0 0 20px 0'
+    td_padding, filtered_style = extract_spacing_for_table('h2', styles, '0 0 20px 0')
+    h2['style'] = filtered_style.map { |k, v| "#{k}: #{v}" }.join('; ')
 
     table_html = <<~HTML
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -443,10 +482,8 @@ def apply_email_styles(html_content, styles)
 
   # Style h3 elements
   doc.css('h3').reverse.each do |h3|
-    h3['style'] = styles.style_string('h3')
-
-    td_style = styles.get_style('h3 td')
-    td_padding = td_style['padding'] || '0 0 15px 0'
+    td_padding, filtered_style = extract_spacing_for_table('h3', styles, '0 0 15px 0')
+    h3['style'] = filtered_style.map { |k, v| "#{k}: #{v}" }.join('; ')
 
     table_html = <<~HTML
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -466,15 +503,8 @@ def apply_email_styles(html_content, styles)
     # Skip if already inside a styled td
     next if p.ancestors.any? { |a| a.name == 'td' && a['style']&.include?('padding') }
 
-    td_style = styles.get_style('p td')
-    td_padding = td_style['padding'] || '0 0 20px 0'
-    p_style = styles.style_string('p')
-
-    # Remove padding and margin from p_style since they're handled by td_padding
-    p_style_filtered = p_style.split(';').reject do |declaration|
-      prop = declaration.split(':').first&.strip&.downcase
-      %w[padding margin].include?(prop)
-    end.join('; ')
+    td_padding, filtered_style = extract_spacing_for_table('p', styles, '0 0 20px 0')
+    p_style_filtered = filtered_style.map { |k, v| "#{k}: #{v}" }.join('; ')
 
     table_html = <<~HTML
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
@@ -499,9 +529,11 @@ def apply_email_styles(html_content, styles)
 
     styles.get_style('li.bullet')
     styles.get_style('li.content')
-    list_td_style = styles.get_style('ul td') || styles.get_style('ol td')
-    list_td_padding = list_td_style['padding'] || '0 0 10px 0'
-    list_style = styles.style_string('ul') || styles.style_string('ol')
+
+    # Extract spacing from list element (ul or ol)
+    list_selector = list.name
+    list_td_padding, list_filtered_style = extract_spacing_for_table(list_selector, styles, '0 0 10px 0')
+    list_style = list_filtered_style.map { |k, v| "#{k}: #{v}" }.join('; ')
 
     # Build table rows for each list item
     rows_html = list_items.each_with_index.map do |li, index|
@@ -987,6 +1019,194 @@ def replace_template_variables(template, config, styles, title, content, primary
   result
 end
 
+# Find CSS file path for dev file with parent fallback
+def find_dev_css_path(template_name)
+  # Check child template first
+  child_css = File.join(template_dir(template_name), 'styles.css')
+  return "templates/#{template_name}/styles.css" if File.exist?(child_css)
+
+  # Check if template has a parent
+  template_config_file = File.join(template_dir(template_name), 'config.yml')
+  if File.exist?(template_config_file)
+    begin
+      template_config = YAML.safe_load(File.read(template_config_file)) || {}
+      if template_config['parent']
+        parent_name = template_config['parent']
+        parent_css = File.join(template_dir(parent_name), 'styles.css')
+        return "templates/#{parent_name}/styles.css" if File.exist?(parent_css)
+      end
+    rescue StandardError
+      # Ignore errors
+    end
+  end
+
+  # Default to default template
+  'templates/default/styles.css'
+end
+
+# Generate email-dev.html for template development
+def generate_dev_file(template_name)
+  config = load_config(template_name)
+
+  # Find CSS path (relative for link tag)
+  css_path = find_dev_css_path(template_name)
+
+  # Get full paths and replace home directory with ~
+  home_dir = Dir.home
+  template_path = template_dir(template_name)
+  template_path_display = template_path.sub(home_dir, '~')
+
+  # Find actual CSS file path (full path)
+  css_file_path = File.join(config_dir, css_path)
+  css_path_display = css_file_path.sub(home_dir, '~')
+
+  # Load the actual email template
+  template_filename = config.dig('paths', 'template_file') || 'email-template.html'
+  template_file = find_template_file(template_name, template_filename)
+
+  unless template_file && File.exist?(template_file)
+    warn "Error: Template file not found: #{template_filename}"
+    warn "Please ensure #{template_filename} exists in #{template_dir(template_name)}"
+    exit 1
+  end
+
+  template = File.read(template_file)
+
+  # Create sample markdown content
+  sample_markdown = <<~MARKDOWN
+# Main Heading (H1)
+
+This is a paragraph of text. It demonstrates the paragraph styling with proper line height and spacing. You can edit the CSS file and see changes reflected immediately in your browser.
+
+## Secondary Heading (H2)
+
+Another paragraph with some **bold text** and *italic text* to show text formatting styles.
+
+### Tertiary Heading (H3)
+
+Here's a paragraph with a [regular link](https://example.com) to demonstrate link styling.
+
+[Click This Button](https://example.com)
+
+- First unordered list item
+- Second list item with **bold text**
+- Third list item with a [link](https://example.com)
+- Fourth list item
+
+1. First ordered list item
+2. Second ordered item
+3. Third ordered item
+
+Here's a full-width image:
+
+![Placeholder](https://via.placeholder.com/600x300)
+
+Here's a floated image on the left:
+
+![Placeholder](https://via.placeholder.com/200x200)
+
+This paragraph wraps around the floated image. You can see how the image floats to the left and text flows around it. This is useful for creating more interesting layouts in your emails.
+
+This paragraph clears the float.
+  MARKDOWN
+
+  # Convert markdown to HTML (but don't apply email styles - let CSS handle it)
+  processor = config.dig('markdown', 'processor') || 'apex'
+  html_content = markdown_to_html(sample_markdown, processor)
+
+  # Get template settings
+  header_image_url = config.dig('template', 'header_image_url') || ''
+  header_image_alt = config.dig('template', 'header_image_alt') || 'Email Header'
+  header_image_width = (config.dig('template', 'header_image_width') || 600).to_s
+  header_image_height = (config.dig('template', 'header_image_height') || 185).to_s
+  signature_image_url = config.dig('template', 'signature_image_url') || ''
+  signature_image_alt = config.dig('template', 'signature_image_alt') || 'Signature'
+  signature_image_width = (config.dig('template', 'signature_image_width') || 98).to_s
+  signature_image_height = (config.dig('template', 'signature_image_height') || 98).to_s
+  signature_text = config.dig('template', 'signature_text') || '-Brett'
+
+  # Create template info table HTML
+  template_info_html = <<~HTML
+                            <!-- Template Info Table -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 20px; background-color: #e8e8e8; border: 1px solid #d0d0d0;">
+                                <tr>
+                                    <td style="padding: 15px 20px;">
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                            <tr>
+                                                <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
+                                                    template:
+                                                </td>
+                                                <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
+                                                    #{template_name}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
+                                                    template path:
+                                                </td>
+                                                <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
+                                                    #{template_path_display}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 5px 10px 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000; font-weight: bold;">
+                                                    style:
+                                                </td>
+                                                <td style="padding: 5px 0; font-family: menlo, courier, monospace; font-size: 12px; color: #000000;">
+                                                    #{css_path_display}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+  HTML
+
+  # Add template info to content
+  html_content = template_info_html + html_content
+
+  # Replace template variables - but use empty strings for inline style placeholders
+  # so CSS can take over
+  template_vars = {
+    'TITLE' => 'Email Template Development Preview',
+    'CONTENT' => html_content,
+    'BODY_STYLE' => '',  # Let CSS handle it
+    'WRAPPER_STYLE' => '',  # Let CSS handle it
+    'CONTENT_WRAPPER_STYLE' => '',  # Let CSS handle it
+    'FONT_FAMILY' => '',  # Let CSS handle it
+    'HEADER_IMAGE_URL' => header_image_url,
+    'HEADER_IMAGE_ALT' => header_image_alt,
+    'HEADER_IMAGE_WIDTH' => header_image_width,
+    'HEADER_IMAGE_HEIGHT' => header_image_height,
+    'SIGNATURE_IMAGE_URL' => signature_image_url,
+    'SIGNATURE_IMAGE_ALT' => signature_image_alt,
+    'SIGNATURE_IMAGE_WIDTH' => signature_image_width,
+    'SIGNATURE_IMAGE_HEIGHT' => signature_image_height,
+    'SIGNATURE_TEXT' => signature_text,
+    'SIGNATURE_STYLE' => '',  # Let CSS handle it
+    'SIGNATURE_TABLE_PADDING' => '20px',
+    'PRIMARY_FOOTER' => '',
+    'FOOTER_STYLE' => '',  # Let CSS handle it
+    'FOOTER_TEXT_STYLE' => '',  # Let CSS handle it
+    'FOOTER_TEXT' => ''
+  }
+
+  dev_html = template.dup
+  template_vars.each do |key, value|
+    dev_html.gsub!("{{#{key}}}", value.to_s)
+  end
+
+  # Add CSS link to head (before closing </head>)
+  dev_html = dev_html.sub('</head>', "    <link rel=\"stylesheet\" href=\"#{css_path}\">\n</head>")
+
+  # Add dev-only body padding style
+  dev_html = dev_html.sub('<body', '<body style="padding: 20px;"')
+  dev_file = File.join(config_dir, 'email-dev.html')
+  File.write(dev_file, dev_html)
+  puts "Generated email-dev.html at #{dev_file}"
+  puts "CSS linked from: #{css_path}"
+end
+
 # Preview HTML in browser
 def preview_html(html_file)
   if File.exist?(html_file)
@@ -1006,7 +1226,8 @@ def parse_args
     preview: false,
     template: 'default',
     create_template: nil,
-    parent: nil
+    parent: nil,
+    dev: false
   }
 
   # Remove flags from args
@@ -1019,6 +1240,9 @@ def parse_args
       args.delete_at(i)
     when '--preview', '-p'
       flags[:preview] = true
+      args.delete_at(i)
+    when '--dev'
+      flags[:dev] = true
       args.delete_at(i)
     when '--template', '-t'
       if i + 1 < args.length
@@ -1052,6 +1276,7 @@ def parse_args
       puts "\nOptions:"
       puts '  --validate, -v           Validate configuration and styles without processing'
       puts '  --preview, -p            Open generated HTML in browser after processing'
+      puts '  --dev                    Generate email-dev.html for template development'
       puts '  --template NAME, -t      Use template NAME (default: default)'
       puts '  --create-template NAME, -c   Create a new template directory with default files'
       puts '  --parent NAME             Use with --create-template to create a child template'
@@ -1063,6 +1288,7 @@ def parse_args
       puts "  #{$0} --template brettterpstra.com email.md  # Use specific template"
       puts "  #{$0} --create-template mytemplate        # Create a new template"
       puts "  #{$0} --create-template child --parent base  # Create child template"
+      puts "  #{$0} --dev --template brett                # Generate dev file for brett template"
       puts "  #{$0} -v -p email.md                      # Validate, generate, and preview"
       exit 0
     else
@@ -1087,6 +1313,12 @@ ensure_default_template_exists
 # Handle --create-template flag
 if flags[:create_template]
   create_template(flags[:create_template], flags[:parent])
+  exit 0
+end
+
+# Handle --dev flag
+if flags[:dev]
+  generate_dev_file(flags[:template] || 'default')
   exit 0
 end
 

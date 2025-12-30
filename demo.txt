@@ -22,13 +22,13 @@ Lists get converted into tables:
 Signature lines are automatically added, you don't need to include a signoff in your Markdown.
 
 Thanks!
-Brett Terpstra (https://brettterpstra.com), Marked Developer
+Brett Terpstra (https://brettterpstra.com), Your Friendly Neighborhood Blogger
 
 ---
 
-Copyright © 2025 Your Name
-123 Main St
-City, State ZIP
+Copyright © 2025 Brett Terpstra
+22305 E Burns Valley Rd
+Winona, MN 55987
 Web Version: [webversion]
 Unsubscribe: [unsubscribe]
 
