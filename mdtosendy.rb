@@ -1124,6 +1124,17 @@ This paragraph clears the float.
   signature_image_width = (config.dig('template', 'signature_image_width') || 98).to_s
   signature_image_height = (config.dig('template', 'signature_image_height') || 98).to_s
   signature_text = config.dig('template', 'signature_text') || '-Brett'
+  # Convert signature text to support <br> tags (replace newlines with <br>)
+  signature_text_html = signature_text.gsub(/\n/, '<br>')
+
+  # Get footer text for dev preview
+  footer_text_raw = config.dig('template', 'footer_text') || ''
+  footer_text = if footer_text_raw.strip.empty?
+                  "Copyright © #{Time.now.year} Your Name<br>123 Main St<br>City, State ZIP<br><br><webversion>View on the web</webversion> | <unsubscribe>Unsubscribe</unsubscribe>"
+                else
+                  # Convert newlines to <br> tags
+                  footer_text_raw.gsub(/\n/, '<br>')
+                end
 
   # Create template info table HTML
   template_info_html = <<~HTML
@@ -1182,19 +1193,66 @@ This paragraph clears the float.
     'SIGNATURE_IMAGE_ALT' => signature_image_alt,
     'SIGNATURE_IMAGE_WIDTH' => signature_image_width,
     'SIGNATURE_IMAGE_HEIGHT' => signature_image_height,
-    'SIGNATURE_TEXT' => signature_text,
+    'SIGNATURE_TEXT' => signature_text_html,
     'SIGNATURE_STYLE' => '',  # Let CSS handle it
     'SIGNATURE_TABLE_PADDING' => '20px',
     'PRIMARY_FOOTER' => '',
     'FOOTER_STYLE' => '',  # Let CSS handle it
     'FOOTER_TEXT_STYLE' => '',  # Let CSS handle it
-    'FOOTER_TEXT' => ''
+    'FOOTER_TEXT' => footer_text
   }
 
   dev_html = template.dup
   template_vars.each do |key, value|
     dev_html.gsub!("{{#{key}}}", value.to_s)
   end
+
+  # Replace signature div with paragraph for dev file (so it can be styled with CSS)
+  # After template variable replacement, the signature div will have style="" and contain the signature text
+  # Use Nokogiri to reliably find and replace
+  doc = Nokogiri::HTML::DocumentFragment.parse(dev_html)
+
+  # Find signature div (it's in a td that's next to the signature image)
+  # Look for a div with empty style that's in a td containing a table with signature image
+  signature_divs = doc.css('td div[style=""]')
+  signature_div = signature_divs.find do |div|
+    div.text.strip.length.positive? && !div.text.include?('Copyright') && !div.text.include?('webversion')
+  end
+
+  if signature_div
+    signature_p = Nokogiri::XML::Node.new('p', doc)
+    signature_p['class'] = 'signature'
+    signature_p.inner_html = signature_div.inner_html
+    signature_div.replace(signature_p)
+  end
+
+  # Find footer div and replace with paragraph, then add footer class to outermost td
+  # The footer structure is: tr > td (with {{FOOTER_STYLE}}) > table > tr > td > div (with {{FOOTER_TEXT}})
+  footer_div = doc.css('div').find do |div|
+    div_text = div.text
+    (div_text&.include?('Copyright') || div_text&.include?('webversion') || div_text&.include?('Unsubscribe')) && div['style'] == ''
+  end
+  if footer_div
+    # Store the inner HTML and parent before replacement
+    footer_html = footer_div.inner_html
+    # Find the parent td that will contain the footer class (the one with {{FOOTER_STYLE}})
+    # Walk up: div > td > tr > table > td > tr (the footer tr with the td that should have class="footer")
+    parent_td = footer_div.ancestors('td').find { |td| td.parent.name == 'tr' && td.at_css('table') }
+    # Replace div with paragraph
+    footer_p = Nokogiri::XML::Node.new('p', doc)
+    footer_p.inner_html = footer_html
+    footer_div.replace(footer_p)
+    # Add footer class to the td that contains the footer table
+    if parent_td
+      parent_td['class'] = 'footer'
+    else
+      # Fallback: find the tr that contains the footer table and get its td
+      footer_tr = footer_p.ancestors('tr').find { |tr| tr.at_css('td table') }
+      footer_tr&.at_css('td')&.[]=('class', 'footer')
+    end
+  end
+
+  dev_html = doc.to_html
 
   # Add CSS link to head (before closing </head>)
   dev_html = dev_html.sub('</head>', "    <link rel=\"stylesheet\" href=\"#{css_path}\">\n</head>")
