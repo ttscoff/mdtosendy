@@ -757,6 +757,20 @@ def process_greeting_tags(markdown_content, default_greeting)
   [processed_content, greeting_map]
 end
 
+# Parse markdown reference definitions from content
+# Returns: hash mapping reference names (lowercase) to URLs
+# Format: [reference name]: URL
+# Reference matching is case-insensitive
+def parse_reference_definitions(markdown_content)
+  references = {}
+  # Match reference definitions: [name]: URL (with optional title)
+  markdown_content.scan(/^\[([^\]]+)\]:\s+(\S+)(?:\s+["']([^"']+)["'])?\s*$/i) do |name, url, title|
+    # Store with lowercase key for case-insensitive lookup
+    references[name.strip.downcase] = url.strip
+  end
+  references
+end
+
 # Process liquid button tags in markdown content
 # Returns: processed_markdown with button tags replaced by markdown links
 # Supports multiple syntaxes:
@@ -764,31 +778,63 @@ end
 #   {% button text="Click Here" url="https://example.com" %} - named attributes without class
 #   {% button "Click Here" https://example.com %} - 2 args: text and url (default button)
 #   {% button alt "Click Here" https://example.com %} - 3 args: class, text, url
-def process_button_tags(markdown_content)
+#   {% button alt "Click Here" [reference] %} - 3 args with reference-style link
+def process_button_tags(markdown_content, references = {})
   processed_content = markdown_content.dup
 
   # Pattern 1: {% button class="value" text="text" url="url" %} - named attributes (class is optional)
-  processed_content.gsub!(/\{%\s*button\s+(?:class\s*=\s*["']([^"']+)["']\s+)?text\s*=\s*["']([^"']+)["']\s+url\s*=\s*["']([^"']+)["']\s*%\}/i) do
+  # Also supports {% button class="value" text="text" url="[reference]" %} for reference-style links
+  processed_content.gsub!(/\{%\s*button\s+(?:class\s*=\s*["']([^"']+)["']\s+)?text\s*=\s*["']([^"']+)["']\s+url\s*=\s*["']?\[?([^"'\]]+)\]?["']?\s*%\}/i) do
     class_name = Regexp.last_match(1) ? Regexp.last_match(1).strip : ''
     button_text = Regexp.last_match(2)
-    button_url = Regexp.last_match(3)
+    button_url_param = Regexp.last_match(3).strip
+
+    # Check if URL parameter is a reference (in square brackets or just the reference name)
+    # Reference matching is case-insensitive
+    button_url = if button_url_param =~ /^\[([^\]]+)\]$/
+                   # Reference in square brackets: [reference]
+                   ref_name = Regexp.last_match(1).strip.downcase
+                   references[ref_name] || button_url_param
+                 elsif references.key?(button_url_param.downcase)
+                   # Just the reference name without brackets
+                   references[button_url_param.downcase]
+                 else
+                   # Regular URL
+                   button_url_param
+                 end
+
     class_attr = class_name.empty? ? '' : " .#{class_name}"
     "[#{button_text}](#{button_url}){:.button#{class_attr}}"
   end
 
   # Pattern 2: {% button class "text" url %} - 3 positional args: class, text, url
+  # Also supports {% button class "text" [reference] %} for reference-style links
   # Must process before pattern 3 (2 args) to avoid conflicts
-  # Match 3 words: class name, quoted text, and URL (where class is not a URL)
+  # Match 3 words: class name, quoted text, and URL or reference (where class is not a URL)
   processed_content.gsub!(/\{%\s*button\s+(\S+)\s+["']([^"']+)["']\s+(\S+)\s*%\}/) do |match|
     potential_class = Regexp.last_match(1).strip
     button_text = Regexp.last_match(2)
-    button_url = Regexp.last_match(3)
+    button_url_param = Regexp.last_match(3).strip
 
     # Check if first arg looks like a URL (starts with http:// or https://)
     # If so, this is actually a 2-arg pattern, skip it
     if potential_class =~ /^https?:\/\//
       next match
     end
+
+    # Check if URL parameter is a reference (in square brackets or just the reference name)
+    # Reference matching is case-insensitive
+    button_url = if button_url_param =~ /^\[([^\]]+)\]$/
+                   # Reference in square brackets: [reference]
+                   ref_name = Regexp.last_match(1).strip.downcase
+                   references[ref_name] || button_url_param
+                 elsif references.key?(button_url_param.downcase)
+                   # Just the reference name without brackets
+                   references[button_url_param.downcase]
+                 else
+                   # Regular URL
+                   button_url_param
+                 end
 
     class_name = potential_class.downcase
     # Map alt -> secondary, alt2 -> tertiary, primary -> empty (default), btn -> empty (default)
@@ -807,10 +853,26 @@ def process_button_tags(markdown_content)
   end
 
   # Pattern 3: {% button "text" url %} - 2 positional args: text and url (default button, no class)
+  # Also supports {% button "text" [reference] %} for reference-style links
   # Must come after pattern 2 to avoid matching 3-arg patterns
   processed_content.gsub!(/\{%\s*button\s+["']([^"']+)["']\s+(\S+)\s*%\}/i) do
     button_text = Regexp.last_match(1)
-    button_url = Regexp.last_match(2)
+    button_url_param = Regexp.last_match(2).strip
+
+    # Check if URL parameter is a reference (in square brackets or just the reference name)
+    # Reference matching is case-insensitive
+    button_url = if button_url_param =~ /^\[([^\]]+)\]$/
+                   # Reference in square brackets: [reference]
+                   ref_name = Regexp.last_match(1).strip.downcase
+                   references[ref_name] || button_url_param
+                 elsif references.key?(button_url_param.downcase)
+                   # Just the reference name without brackets
+                   references[button_url_param.downcase]
+                 else
+                   # Regular URL
+                   button_url_param
+                 end
+
     "[#{button_text}](#{button_url}){:.button}"
   end
 
@@ -1687,11 +1749,14 @@ if markdown_file
     default_greeting = ''
   end
 
+  # Parse markdown reference definitions before processing tags
+  references = parse_reference_definitions(markdown_content)
+
   # Process greeting tags in markdown
   processed_markdown, greeting_map = process_greeting_tags(markdown_content, default_greeting)
 
   # Process button tags in markdown (convert to markdown link syntax)
-  processed_markdown = process_button_tags(processed_markdown)
+  processed_markdown = process_button_tags(processed_markdown, references)
 
   # Convert Markdown to HTML
   processor = config.dig('markdown', 'processor') || 'apex'

@@ -489,6 +489,31 @@ Buttons support multiple style variants:
 - **Secondary button**: `[CTA](url){:.button .secondary}` or `[CTA](url){:.btn .alt}`
 - **Tertiary button**: `[CTA](url){:.button .tertiary}` or `[CTA](url){:.btn .alt2}`
 
+You can also use button liquid tags with multiple syntaxes:
+
+**Named attributes:**
+```markdown
+{% button class="primary" text="Click Here" url="https://example.com" %}
+{% button text="Click Here" url="https://example.com" %}
+```
+
+**Positional arguments:**
+```markdown
+{% button "Click Here" https://example.com %}
+{% button alt "Click Here" https://example.com %}
+```
+
+**Reference-style links:**
+Button tags support markdown reference-style links. Define your references and use them in button tags:
+
+```markdown
+[Markdown Web]: https://forum.brettterpstra.com/t/how-about-a-markdown-web/4412/12
+
+{% button alt "How about a Markdown Web?" [Markdown Web] %}
+```
+
+Reference matching is case-insensitive, so `[Markdown Web]`, `[markdown web]`, and `[MARKDOWN WEB]` will all match the same reference definition.
+
 Define styles in your CSS:
 ```css
 a.button {
