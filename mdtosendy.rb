@@ -757,6 +757,66 @@ def process_greeting_tags(markdown_content, default_greeting)
   [processed_content, greeting_map]
 end
 
+# Process liquid button tags in markdown content
+# Returns: processed_markdown with button tags replaced by markdown links
+# Supports multiple syntaxes:
+#   {% button class="primary" text="Click Here" url="https://example.com" %} - named attributes (class is optional)
+#   {% button text="Click Here" url="https://example.com" %} - named attributes without class
+#   {% button "Click Here" https://example.com %} - 2 args: text and url (default button)
+#   {% button alt "Click Here" https://example.com %} - 3 args: class, text, url
+def process_button_tags(markdown_content)
+  processed_content = markdown_content.dup
+
+  # Pattern 1: {% button class="value" text="text" url="url" %} - named attributes (class is optional)
+  processed_content.gsub!(/\{%\s*button\s+(?:class\s*=\s*["']([^"']+)["']\s+)?text\s*=\s*["']([^"']+)["']\s+url\s*=\s*["']([^"']+)["']\s*%\}/i) do
+    class_name = Regexp.last_match(1) ? Regexp.last_match(1).strip : ''
+    button_text = Regexp.last_match(2)
+    button_url = Regexp.last_match(3)
+    class_attr = class_name.empty? ? '' : " .#{class_name}"
+    "[#{button_text}](#{button_url}){:.button#{class_attr}}"
+  end
+
+  # Pattern 2: {% button class "text" url %} - 3 positional args: class, text, url
+  # Must process before pattern 3 (2 args) to avoid conflicts
+  # Match 3 words: class name, quoted text, and URL (where class is not a URL)
+  processed_content.gsub!(/\{%\s*button\s+(\S+)\s+["']([^"']+)["']\s+(\S+)\s*%\}/) do |match|
+    potential_class = Regexp.last_match(1).strip
+    button_text = Regexp.last_match(2)
+    button_url = Regexp.last_match(3)
+
+    # Check if first arg looks like a URL (starts with http:// or https://)
+    # If so, this is actually a 2-arg pattern, skip it
+    if potential_class =~ /^https?:\/\//
+      next match
+    end
+
+    class_name = potential_class.downcase
+    # Map alt -> secondary, alt2 -> tertiary, primary -> empty (default), btn -> empty (default)
+    mapped_class = case class_name
+                   when 'alt2'
+                     'tertiary'
+                   when 'alt'
+                     'secondary'
+                   when 'primary', 'btn'
+                     ''
+                   else
+                     class_name
+                   end
+    class_attr = mapped_class.empty? ? '' : " .#{mapped_class}"
+    "[#{button_text}](#{button_url}){:.button#{class_attr}}"
+  end
+
+  # Pattern 3: {% button "text" url %} - 2 positional args: text and url (default button, no class)
+  # Must come after pattern 2 to avoid matching 3-arg patterns
+  processed_content.gsub!(/\{%\s*button\s+["']([^"']+)["']\s+(\S+)\s*%\}/i) do
+    button_text = Regexp.last_match(1)
+    button_url = Regexp.last_match(2)
+    "[#{button_text}](#{button_url}){:.button}"
+  end
+
+  processed_content
+end
+
 # Convert Markdown to plain text
 def markdown_to_plain_text(markdown_content)
   plain_text = markdown_content.dup
@@ -1629,6 +1689,9 @@ if markdown_file
 
   # Process greeting tags in markdown
   processed_markdown, greeting_map = process_greeting_tags(markdown_content, default_greeting)
+
+  # Process button tags in markdown (convert to markdown link syntax)
+  processed_markdown = process_button_tags(processed_markdown)
 
   # Convert Markdown to HTML
   processor = config.dig('markdown', 'processor') || 'apex'
