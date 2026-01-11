@@ -119,20 +119,34 @@ a.button-fallback a {
 /* Secondary Button */
 a.button.secondary,
 a.btn.alt {
+  display: inline-block;
+  padding: 16px 40px;
+  font-family: Avenir, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 18px;
+  font-weight: bold;
+  color: #ffffff !important;
+  text-decoration: none !important;
+  border-radius: 16px;
   background: linear-gradient(to right, #6b9fff, #4d7fff);
   background-color: #4d7fff;
   border: 1px solid #3d6fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 a.button.secondary span,
 a.btn.alt span {
   color: #ffffff;
+  font-weight: bold;
+  text-decoration: none;
 }
 
 a.button.secondary td,
 a.btn.alt td {
   background: linear-gradient(to right, #6b9fff, #4d7fff);
   background-color: #4d7fff;
+  border-radius: 16px;
+  padding: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 /* Tertiary Button */
