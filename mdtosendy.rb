@@ -573,7 +573,7 @@ def apply_email_styles(html_content, styles)
   end
 
   # Helper to determine button style selector based on classes
-  def get_button_selector(classes)
+  def get_button_selector(classes, styles)
     return 'a.button' if classes.nil? || classes.empty?
 
     class_list = classes.split(/\s+/)
@@ -608,7 +608,7 @@ def apply_email_styles(html_content, styles)
     escaped_text = link_text.gsub('&', '&amp;').gsub('<', '&lt;').gsub('>', '&gt;')
 
     # Determine which button style to use
-    button_selector = get_button_selector(a['class'])
+    button_selector = get_button_selector(a['class'], styles)
 
     button_style = styles.style_string(button_selector)
     button_td_style = styles.get_style("#{button_selector} td")
