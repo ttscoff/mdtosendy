@@ -31,6 +31,10 @@ template:
   signature_image_width: 98
   signature_image_height: 98
   signature_text: '-Your Name'
+  # Optional: Default greeting inserted after header image, before first paragraph
+  # Can be overridden in YAML frontmatter with 'greeting: xxx' or 'salutation: xxx' or using {% greeting %} or {% salutation %} tag in markdown
+  # greeting: 'Hey [Name,fallback=there],'
+  # salutation: 'Hey [Name,fallback=there],'  # alias for greeting (takes precedence if both are defined)
   # Optional: Primary footer appears after signature, before unsubscribe section
   # Can contain Markdown or HTML (e.g., product links, promotional content)
   # primary_footer: |

@@ -734,6 +734,29 @@ def apply_email_styles(html_content, styles)
   doc.to_html
 end
 
+# Process liquid greeting tags in markdown content
+# Returns: [processed_markdown, greeting_map]
+# greeting_map: hash mapping placeholder indices to greeting text
+def process_greeting_tags(markdown_content, default_greeting)
+  greeting_map = {}
+  processed_content = markdown_content.dup
+  placeholder_index = 0
+
+  # Find all {% greeting %} or {% salutation %} tags and replace with placeholders
+  # Match: {% greeting %} or {% greeting "text" %} or {% greeting 'text' %}
+  # Also match: {% salutation %} or {% salutation "text" %} or {% salutation 'text' %}
+  processed_content.gsub!(/\{%\s*(?:greeting|salutation)\s*(?:"([^"]+)"|'([^']+)')?\s*%\}/) do
+    # Extract the greeting text from the tag
+    greeting_text = Regexp.last_match(1) || Regexp.last_match(2) || default_greeting
+    placeholder = "{{GREETING_PLACEHOLDER_#{placeholder_index}}}"
+    greeting_map[placeholder_index] = greeting_text
+    placeholder_index += 1
+    placeholder
+  end
+
+  [processed_content, greeting_map]
+end
+
 # Convert Markdown to plain text
 def markdown_to_plain_text(markdown_content)
   plain_text = markdown_content.dup
@@ -931,7 +954,7 @@ def map_flat_keys_to_config(frontmatter)
   template_keys = %w[
     header_image_url header_image_alt header_image_width header_image_height
     signature_image_url signature_image_alt signature_image_width signature_image_height
-    signature_text primary_footer footer_text
+    signature_text primary_footer footer_text greeting salutation
   ]
   email_keys = %w[from_name from_email reply_to]
   markdown_keys = %w[processor]
@@ -971,7 +994,7 @@ def merge_frontmatter_config(base_config, frontmatter)
   template_keys = %w[
     header_image_url header_image_alt header_image_width header_image_height
     signature_image_url signature_image_alt signature_image_width signature_image_height
-    signature_text primary_footer footer_text
+    signature_text primary_footer footer_text greeting salutation
   ]
   email_keys = %w[from_name from_email reply_to]
   markdown_keys = %w[processor]
@@ -1171,10 +1194,8 @@ def generate_dev_file(template_name)
     existing_class = link['class'] || ''
     # Only add button class if it's missing (markdown processor may have already added classes)
     # Don't try to infer secondary/tertiary from text - let markdown classes handle that
-    if !existing_class.include?('button') && !existing_class.include?('btn')
-      if link_text.include?('Click This Button') || link_text.include?('Secondary Button') || link_text.include?('Tertiary Button')
-        link['class'] = "#{existing_class} button".strip
-      end
+    if !existing_class.include?('button') && !existing_class.include?('btn') && (link_text.include?('Click This Button') || link_text.include?('Secondary Button') || link_text.include?('Tertiary Button'))
+      link['class'] = "#{existing_class} button".strip
     end
   end
   html_content = html_doc.to_html
@@ -1589,11 +1610,82 @@ if markdown_file
     end
   end
 
+  # Get default greeting from config (can be overridden by frontmatter)
+  # Support both 'greeting' and 'salutation' keys, with 'salutation' taking precedence if both exist
+  template_config = config.dig('template') || {}
+  has_greeting = template_config.key?('greeting') && !template_config['greeting'].nil? && !template_config['greeting'].to_s.strip.empty?
+  has_salutation = template_config.key?('salutation') && !template_config['salutation'].nil? && !template_config['salutation'].to_s.strip.empty?
+
+  if has_greeting && has_salutation
+    warn "Warning: Both 'greeting' and 'salutation' are defined in config. Using 'salutation'."
+    default_greeting = template_config['salutation'].to_s
+  elsif has_salutation
+    default_greeting = template_config['salutation'].to_s
+  elsif has_greeting
+    default_greeting = template_config['greeting'].to_s
+  else
+    default_greeting = ''
+  end
+
+  # Process greeting tags in markdown
+  processed_markdown, greeting_map = process_greeting_tags(markdown_content, default_greeting)
+
   # Convert Markdown to HTML
   processor = config.dig('markdown', 'processor') || 'apex'
-  html_content = markdown_to_html(markdown_content, processor)
+  html_content = markdown_to_html(processed_markdown, processor)
 
-  # Apply email styles
+  # Process greeting placeholders - convert greeting text to HTML (but don't apply styles yet)
+  # We'll apply styles after all HTML is processed
+  greeting_html_map = {}
+  greeting_map.each do |index, greeting_text|
+    # Process greeting text as markdown/HTML
+    greeting_html_map[index] = if greeting_text.strip =~ /^<[a-z]/i && greeting_text.strip =~ %r{</[a-z]>.*$}i
+                                 # It's HTML, store as-is (will apply styles later)
+                                 greeting_text
+                               else
+                                 # It's Markdown, convert to HTML
+                                 markdown_to_html(greeting_text, processor)
+                               end
+    # Replace placeholder with processed HTML (before styles are applied)
+    html_content = html_content.gsub("{{GREETING_PLACEHOLDER_#{index}}}", greeting_html_map[index])
+  end
+
+  # Determine if we should insert default greeting
+  # Only insert if no greeting tags were found in markdown and default greeting is set
+  has_greeting_tags = !greeting_map.empty?
+  should_insert_default_greeting = !has_greeting_tags && !default_greeting.nil? && !default_greeting.strip.empty?
+
+  # Process default greeting if needed (before applying styles)
+  if should_insert_default_greeting
+    # Process greeting as markdown/HTML
+    greeting_raw = default_greeting
+    default_greeting_html = if greeting_raw.strip =~ /^<[a-z]/i && greeting_raw.strip =~ %r{</[a-z]>.*$}i
+                              # It's HTML, use as-is
+                              greeting_raw
+                            else
+                              # It's Markdown, convert to HTML
+                              markdown_to_html(greeting_raw, processor)
+                            end
+
+    # Insert greeting after header, before first paragraph
+    # Add line breaks after greeting (two <br> tags)
+    greeting_with_breaks = "#{default_greeting_html}<br><br>"
+
+    # Find the first paragraph or heading and insert greeting before it
+    doc = Nokogiri::HTML::DocumentFragment.parse(html_content)
+    first_element = doc.at_css('p, h1, h2, h3, ul, ol, blockquote')
+    if first_element
+      # Insert greeting before the first element
+      greeting_fragment = Nokogiri::HTML::DocumentFragment.parse(greeting_with_breaks)
+      first_element.add_previous_sibling(greeting_fragment)
+      html_content = doc.to_html
+    else
+      # No paragraphs found, prepend to content
+      html_content = "#{greeting_with_breaks}#{html_content}"
+    end
+  end
+
+  # Apply email styles (this will style both content and any inserted greetings)
   styled_html = apply_email_styles(html_content, styles)
 
   # Extract title

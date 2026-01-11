@@ -257,7 +257,7 @@ header_image_url: 'https://marked2app.com/img/email/marked3emailheader2_02.jpg'
 ```
 
 **Supported override keys:**
-- **Template settings**: `header_image_url`, `header_image_alt`, `header_image_width`, `header_image_height`, `signature_image_url`, `signature_image_alt`, `signature_image_width`, `signature_image_height`, `signature_text`, `primary_footer`, `footer_text`
+- **Template settings**: `header_image_url`, `header_image_alt`, `header_image_width`, `header_image_height`, `signature_image_url`, `signature_image_alt`, `signature_image_width`, `signature_image_height`, `signature_text`, `primary_footer`, `footer_text`, `greeting`, `salutation` (alias for `greeting`)
 - **Email settings**: `from_name`, `from_email`, `reply_to`
 - **Markdown settings**: `processor`
 - **Campaign settings**: `track_opens`, `track_clicks`, `default_timezone`
@@ -276,6 +276,66 @@ email:
 
 Frontmatter values take precedence over values in `config.yml`, allowing you to customize individual emails while maintaining a base configuration.
 
+### Greetings
+
+You can add a personalized greeting to your emails that appears after the header image and before the first paragraph. Greetings support multiple configuration methods:
+
+**1. Default greeting in config:**
+Set a default greeting in your `config.yml` using either `greeting` or `salutation` (they are synonymous, `salutation` takes precedence if both are defined):
+```yaml
+template:
+  greeting: 'Hey [Name,fallback=there],'
+  # or
+  salutation: 'Hey [Name,fallback=there],'
+```
+
+**2. Override in YAML frontmatter:**
+Override the default greeting for a specific email using either `greeting` or `salutation`:
+```markdown
+---
+title: My Email
+greeting: 'Hello everyone,'
+# or
+salutation: 'Hello everyone,'
+---
+```
+
+**3. Use liquid tag in markdown:**
+Place a `{% greeting %}` or `{% salutation %}` tag anywhere in your markdown to insert the configured greeting at that location (without line breaks):
+```markdown
+{% greeting %}
+
+This is the email content.
+```
+
+Or using the alias:
+```markdown
+{% salutation %}
+
+This is the email content.
+```
+
+**4. Override with liquid tag:**
+Provide a custom greeting directly in the tag:
+```markdown
+{% greeting "Hi there" %}
+
+This is the email content.
+```
+
+Or using the alias:
+```markdown
+{% salutation "Hi there" %}
+
+This is the email content.
+```
+
+**Notes:**
+- If no `{% greeting %}` tags are found in the markdown and a default greeting is configured, it will be automatically inserted before the first paragraph with line breaks.
+- If `{% greeting %}` tags are present, the default greeting is not automatically inserted.
+- Greetings can contain Markdown or HTML and will be processed accordingly.
+- The `[Name,fallback=there]` syntax is a Sendy merge tag that will be replaced when the email is sent.
+
 ## Configuration
 
 ### Configuration File (`config.yml`)
@@ -285,7 +345,7 @@ Located at `~/.config/mdtosendy/config.yml` (base config) and optionally `~/.con
 - **sendy**: API URL, API key, brand ID, list IDs
 - **email**: From name, from email, reply-to address
 - **campaign**: Tracking settings, timezone
-- **template**: Header image, signature, primary footer, URLs, and template variables
+- **template**: Header image, signature, primary footer, URLs, greeting, and template variables
 - **paths**: File paths for template and styles
 - **markdown**: Markdown processor to use (default: `apex`). See [Prerequisites](#prerequisites) for installation options.
 
