@@ -331,7 +331,7 @@ This is the email content.
 ```
 
 **Notes:**
-- If no `{% greeting %}` tags are found in the markdown and a default greeting is configured, it will be automatically inserted before the first paragraph with line breaks.
+- If no `{% greeting %}` tags are found in the markdown and a default greeting is configured, it will be automatically inserted before the first paragraph (spacing handled by table layout).
 - If `{% greeting %}` tags are present, the default greeting is not automatically inserted.
 - Greetings can contain Markdown or HTML and will be processed accordingly.
 - The `[Name,fallback=there]` syntax is a Sendy merge tag that will be replaced when the email is sent.

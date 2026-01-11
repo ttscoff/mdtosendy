@@ -810,8 +810,9 @@ def process_button_tags(markdown_content, references = {})
   # Pattern 2: {% button class "text" url %} - 3 positional args: class, text, url
   # Also supports {% button class "text" [reference] %} for reference-style links
   # Must process before pattern 3 (2 args) to avoid conflicts
-  # Match 3 words: class name, quoted text, and URL or reference (where class is not a URL)
-  processed_content.gsub!(/\{%\s*button\s+(\S+)\s+["']([^"']+)["']\s+(\S+)\s*%\}/) do |match|
+  # Match 3 args: class name, quoted text, and URL or reference (where class is not a URL)
+  # Reference can be in square brackets with spaces: [reference name]
+  processed_content.gsub!(/\{%\s*button\s+(\S+)\s+["']([^"']+)["']\s+(\[[^\]]+\]|\S+)\s*%\}/) do |match|
     potential_class = Regexp.last_match(1).strip
     button_text = Regexp.last_match(2)
     button_url_param = Regexp.last_match(3).strip
@@ -855,7 +856,8 @@ def process_button_tags(markdown_content, references = {})
   # Pattern 3: {% button "text" url %} - 2 positional args: text and url (default button, no class)
   # Also supports {% button "text" [reference] %} for reference-style links
   # Must come after pattern 2 to avoid matching 3-arg patterns
-  processed_content.gsub!(/\{%\s*button\s+["']([^"']+)["']\s+(\S+)\s*%\}/i) do
+  # Reference can be in square brackets with spaces: [reference name]
+  processed_content.gsub!(/\{%\s*button\s+["']([^"']+)["']\s+(\[[^\]]+\]|\S+)\s*%\}/i) do
     button_text = Regexp.last_match(1)
     button_url_param = Regexp.last_match(2).strip
 
@@ -1796,20 +1798,19 @@ if markdown_file
                             end
 
     # Insert greeting after header, before first paragraph
-    # Add line breaks after greeting (two <br> tags)
-    greeting_with_breaks = "#{default_greeting_html}<br><br>"
+    # Greeting will be treated as a paragraph with proper spacing from table layout
 
     # Find the first paragraph or heading and insert greeting before it
     doc = Nokogiri::HTML::DocumentFragment.parse(html_content)
     first_element = doc.at_css('p, h1, h2, h3, ul, ol, blockquote')
     if first_element
       # Insert greeting before the first element
-      greeting_fragment = Nokogiri::HTML::DocumentFragment.parse(greeting_with_breaks)
+      greeting_fragment = Nokogiri::HTML::DocumentFragment.parse(default_greeting_html)
       first_element.add_previous_sibling(greeting_fragment)
       html_content = doc.to_html
     else
       # No paragraphs found, prepend to content
-      html_content = "#{greeting_with_breaks}#{html_content}"
+      html_content = "#{default_greeting_html}#{html_content}"
     end
   end
 
