@@ -1,3 +1,46 @@
+### 1.0.6
+
+2026-01-12 07:36
+
+#### CHANGED
+
+- Updated config.example.yml to document salutation alias
+- Updated README.md to document salutation as alias for greeting in all usage contexts
+- Reference matching is case-insensitive for both reference definitions and button tag lookups
+- Updated README.md to document button liquid tag syntaxes including reference-style links
+- Updated README to note greeting spacing is handled by table layout
+- Updated secondary button styling to match primary button appearance (border-radius, box-shadow, padding, font properties)
+- Updated styles.example.css and all template styles.css files with consistent secondary button styling
+
+#### NEW
+
+- Define a greeting in template configs to be inserted at the beginning of the email automatically
+- Use `{% greeting %}` to modify where the greeting is inserted
+- Use `{% greeting "Hey there!" %}` in the Markdown to override both location and content
+- Use `greeting: Hello!` in the Markdown file's YAML to override configured greeting
+- Added salutation as alias for greeting in config (salutation takes precedence if both are defined)
+- Added warning when both greeting and salutation are defined in config
+- Added {% salutation %} as alias for {% greeting %} liquid tag
+- Added {% button %} liquid tag to generate styled button links in markdown
+- Support for {% button class="primary" text="Click Here" url="https://example.com" %} syntax with named attributes (class optional)
+- Support for {% button "Click Here" https://example.com %} two-argument syntax (text and url, default button)
+- Support for {% button alt "Click Here" https://example.com %} three-argument syntax (class, text, url)
+- Automatic mapping of alt -> secondary, alt2 -> tertiary for button classes
+- Button tags convert to markdown link syntax with button classes for processing by existing button styling system
+- Added support for markdown reference-style links in button tags using square brackets
+- Button tags can now use reference definitions like {% button alt "Text" [Reference Name] %}
+- Added parse_reference_definitions function to extract reference definitions from markdown content
+- Added followup_url config option in sendy section to automatically open a URL in browser after creating a campaign
+- Added interactive prompt asking user to confirm opening followup URL (defaults to yes)
+- Followup URL is ignored when using --preview flag since preview already opens in browser
+
+#### FIXED
+
+- Fixed NameError in get_button_selector function by adding styles as a parameter instead of accessing it from closure scope
+- Updated config files using Ruby instead of sed to work with Fish shell
+- Removed line breaks from default greeting insertion (spacing now handled by table layout)
+- Updated button tag regex patterns to support references with spaces in square brackets
+
 ### 1.0.5
 
 2025-12-30 09:38
