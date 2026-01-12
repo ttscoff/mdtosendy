@@ -7,6 +7,8 @@ sendy:
   api_key: 'your-api-key-here'
   brand_id: '1'
   list_ids: 'your-list-id-here'
+  # Optional: URL to open in browser after creating a campaign (ignored for --preview)
+  # followup_url: 'https://example.com/campaigns'
 
 # Email Settings
 email:

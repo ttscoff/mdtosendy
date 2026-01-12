@@ -2096,6 +2096,16 @@ unless flags[:preview]
       else
         puts "Campaign created and scheduled for #{publish_date.strftime('%Y-%m-%d %H:%M')}"
       end
+
+      # Check for followup URL
+      followup_url = sendy_config['followup_url']
+      if followup_url && !followup_url.strip.empty?
+        print "Open the followup URL in your browser? (Y/n): "
+        response = $stdin.gets.chomp.strip.downcase
+        if response.empty? || response == 'y'
+          system('open', followup_url)
+        end
+      end
     else
       warn "Error creating campaign: #{res.code} #{res.message}"
       warn res.body if res.body
