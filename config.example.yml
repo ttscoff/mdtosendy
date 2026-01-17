@@ -88,12 +88,14 @@ markdown:
 #   # Upload type: s3, scp, or sftp
 #   type: "s3"
 #   # For S3: username = access key, password = secret key, path = bucket name
-#   # For SCP/SFTP: username = SSH username, password = SSH password, path = remote directory
+#   # For SCP/SFTP: username = SSH username (optional if using SSH config), password = SSH password (optional if using SSH keys), path = remote directory
 #   username: "your-access-key-id"
 #   password: "your-secret-access-key"
 #   path: "your-bucket-name"
 #   # Optional: hostname (required for SCP/SFTP, not used for S3)
+#   # Can be a hostname or SSH config alias (e.g., "dh" if defined in ~/.ssh/config)
 #   # hostname: "example.com"
+#   # hostname: "dh"  # Example: using SSH config alias
 #   # Optional: port (defaults to 22 for SCP/SFTP, not used for S3)
 #   # port: 22
 #   # Optional: subdirectory within bucket/path to store images

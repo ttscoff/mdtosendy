@@ -26,7 +26,7 @@ You can have images automatically uploaded to a CDN when local file paths are de
 Signature lines are automatically added, you don't need to include a signoff in your Markdown.
 
 Thanks!
-Brett Terpstra (https://brettterpstra.com), Your Friendly Neighborhood Blogger
+Brett Terpstra (https://brettterpstra.com), Marked Developer
 
 ---
 

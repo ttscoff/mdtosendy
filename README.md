@@ -577,8 +577,11 @@ The Gemfile includes:
 - `nokogiri` - Required for HTML parsing
 - `aws-sdk-s3` - For S3 uploads (if using S3)
 - `net-scp` and `net-ssh` - For SCP/SFTP uploads (if using SCP/SFTP)
+- `ed25519` and `bcrypt_pbkdf` - Required if your SSH keys use ed25519 (common on modern systems)
 
 You only need to install the gems for the upload method you plan to use. The code handles missing gems gracefully.
+
+**Note:** If you use ed25519 SSH keys (which are common on modern systems), you'll need the `ed25519` and `bcrypt_pbkdf` gems. These are included in the Gemfile and will be installed with `bundle install`.
 
 ### Configuration
 
@@ -631,7 +634,7 @@ cdn:
 
 ### SCP/SFTP Configuration Example
 
-For SCP or SFTP:
+For SCP or SFTP with password authentication:
 
 ```yaml
 cdn:
@@ -643,6 +646,18 @@ cdn:
   path: "/var/www/cdn/images"
   port: 22
   subdirectory: "emails"
+```
+
+For SCP or SFTP with SSH key-based authentication (using SSH config alias):
+
+```yaml
+cdn:
+  url: "https://cdn.example.com"
+  type: "scp"  # or "sftp"
+  hostname: "dh"  # SSH config alias from ~/.ssh/config
+  path: "~/brettterpstra.com/images/email/"
+  # username and password are optional when using SSH keys
+  # Net::SSH will automatically use settings from ~/.ssh/config
 ```
 
 ### How It Works

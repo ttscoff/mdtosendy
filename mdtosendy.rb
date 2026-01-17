@@ -172,7 +172,7 @@ def upload_image_to_s3(local_path, cdn_config, markdown_file_dir)
     # Construct CDN URL
     cdn_url = cdn_config['url'].chomp('/')
     final_url = "#{cdn_url}/#{remote_path}"
-    
+
     final_url
   rescue StandardError => e
     warn "Error uploading to S3: #{e.message}"
@@ -188,6 +188,14 @@ def upload_image_via_scp(local_path, cdn_config, markdown_file_dir)
   rescue LoadError
     warn 'Error: net-scp and net-ssh gems are required for SCP uploads. Install with: gem install net-scp net-ssh'
     return nil
+  rescue NotImplementedError => e
+    if e.message.include?('ed25519')
+      warn 'Error: ed25519 SSH key support requires additional gems.'
+      warn '  Install with: gem install ed25519 bcrypt_pbkdf'
+      warn '  Or run: bundle install'
+      return nil
+    end
+    raise
   end
 
   hostname = cdn_config['hostname']
@@ -197,9 +205,30 @@ def upload_image_via_scp(local_path, cdn_config, markdown_file_dir)
   subdirectory = cdn_config['subdirectory'] || ''
   port = cdn_config['port'] || 22
 
-  unless hostname && username && password
-    warn 'Error: SCP configuration incomplete. Need hostname, username, and password'
+  unless hostname
+    warn 'Error: SCP configuration incomplete. Need hostname (can be SSH config alias)'
     return nil
+  end
+
+  # Build SSH connection options
+  # Net::SSH will automatically read from ~/.ssh/config if hostname is an alias
+  # It will use username, hostname, port, and identity files from SSH config if not specified
+  ssh_options = {}
+  ssh_options[:password] = password if password
+  ssh_options[:port] = port if port && port != 22
+  # Use system known_hosts file for host key verification
+  # This allows Net::SSH to verify against ~/.ssh/known_hosts like regular SSH does
+  known_hosts_file = File.join(Dir.home, '.ssh', 'known_hosts')
+  if File.exist?(known_hosts_file)
+    begin
+      ssh_options[:known_hosts] = Net::SSH::KnownHosts.new([known_hosts_file])
+    rescue StandardError
+      # If there's an issue with known_hosts, fall back to accepting new hosts
+      ssh_options[:verify_host_key] = :accept_new_or_local_tunnel
+    end
+  else
+    # If known_hosts doesn't exist, accept new hosts (like SSH does on first connection)
+    ssh_options[:verify_host_key] = :accept_new_or_local_tunnel
   end
 
   # Resolve local path relative to markdown file directory
@@ -226,19 +255,68 @@ def upload_image_via_scp(local_path, cdn_config, markdown_file_dir)
   remote_path = "#{remote_dir}/#{remote_filename}".gsub(%r{//+}, '/')
 
   begin
-    Net::SSH.start(hostname, username, password: password, port: port) do |ssh|
+    # Net::SSH will use SSH config if hostname is an alias (like 'dh')
+    # It will automatically use keys, username, hostname, and port from ~/.ssh/config
+    # If username is provided, use it; otherwise let SSH config provide it
+    Net::SSH.start(hostname, username, ssh_options) do |ssh|
+      # Expand ~ in remote directory path if present
+      # Get the remote home directory and expand ~
+      if remote_dir.start_with?('~/')
+        home_result = ssh.exec!("echo $HOME")
+        home_dir = home_result.to_s.strip
+        expanded_remote_dir = remote_dir.sub(/^~/, home_dir)
+        expanded_remote_path = remote_path.sub(/^~/, home_dir)
+      else
+        expanded_remote_dir = remote_dir
+        expanded_remote_path = remote_path
+      end
+
       # Ensure remote directory exists
-      ssh.exec!("mkdir -p #{remote_dir}")
+      result = ssh.exec!("mkdir -p #{expanded_remote_dir}")
+      unless result.exitstatus == 0
+        warn "Warning: Could not create remote directory: #{expanded_remote_dir} (exit code: #{result.exitstatus})"
+        warn "  Output: #{result}" unless result.to_s.empty?
+        raise "Failed to create remote directory"
+      end
 
       # Upload file
-      ssh.scp.upload!(absolute_path, remote_path)
+      begin
+        ssh.scp.upload!(absolute_path, expanded_remote_path)
+      rescue Net::SCP::Error => e
+        warn "SCP upload failed: #{e.message}"
+        warn "  Local file: #{absolute_path}"
+        warn "  Remote path: #{expanded_remote_path}"
+        raise
+      end
     end
 
     cdn_url = cdn_config['url'].chomp('/')
     subdir_path = subdirectory.empty? ? '' : "#{subdirectory}/"
     "#{cdn_url}/#{subdir_path}#{remote_filename}"
+  rescue NotImplementedError => e
+    if e.message.include?('ed25519')
+      warn 'Error: ed25519 SSH key support requires additional gems.'
+      warn '  Install with: gem install ed25519 bcrypt_pbkdf'
+      warn '  Or run: bundle install'
+      return nil
+    end
+    raise
+  rescue Net::SSH::HostKeyMismatch => e
+    warn "Error: SSH host key fingerprint mismatch for #{hostname}"
+    warn "  Fingerprint: #{e.fingerprint}"
+    warn "  Host: #{e.host}"
+    warn "  This usually means the server's key has changed or there's a mismatch in known_hosts"
+    warn "  To fix: Remove the old entry from ~/.ssh/known_hosts or update it with: ssh-keygen -R #{e.host || hostname}"
+    nil
+  rescue Net::SCP::Error => e
+    warn "Error uploading via SCP: #{e.message}"
+    warn "  This usually indicates a problem with the remote path, permissions, or directory creation"
+    warn "  Check that the remote directory exists and is writable"
+    nil
   rescue StandardError => e
     warn "Error uploading via SCP: #{e.message}"
+    warn "  Local file: #{absolute_path}" if defined?(absolute_path)
+    warn "  Remote path: #{remote_path}" if defined?(remote_path)
     nil
   end
 end
@@ -251,6 +329,14 @@ def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
   rescue LoadError
     warn 'Error: net-ssh gem is required for SFTP uploads. Install with: gem install net-ssh'
     return nil
+  rescue NotImplementedError => e
+    if e.message.include?('ed25519')
+      warn 'Error: ed25519 SSH key support requires additional gems.'
+      warn '  Install with: gem install ed25519 bcrypt_pbkdf'
+      warn '  Or run: bundle install'
+      return nil
+    end
+    raise
   end
 
   hostname = cdn_config['hostname']
@@ -260,9 +346,30 @@ def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
   subdirectory = cdn_config['subdirectory'] || ''
   port = cdn_config['port'] || 22
 
-  unless hostname && username && password
-    warn 'Error: SFTP configuration incomplete. Need hostname, username, and password'
+  unless hostname
+    warn 'Error: SFTP configuration incomplete. Need hostname (can be SSH config alias)'
     return nil
+  end
+
+  # Build SSH connection options
+  # Net::SSH will automatically read from ~/.ssh/config if hostname is an alias
+  # It will use username, hostname, port, and identity files from SSH config if not specified
+  ssh_options = {}
+  ssh_options[:password] = password if password
+  ssh_options[:port] = port if port && port != 22
+  # Use system known_hosts file for host key verification
+  # This allows Net::SSH to verify against ~/.ssh/known_hosts like regular SSH does
+  known_hosts_file = File.join(Dir.home, '.ssh', 'known_hosts')
+  if File.exist?(known_hosts_file)
+    begin
+      ssh_options[:known_hosts] = Net::SSH::KnownHosts.new([known_hosts_file])
+    rescue StandardError
+      # If there's an issue with known_hosts, fall back to accepting new hosts
+      ssh_options[:verify_host_key] = :accept_new_or_local_tunnel
+    end
+  else
+    # If known_hosts doesn't exist, accept new hosts (like SSH does on first connection)
+    ssh_options[:verify_host_key] = :accept_new_or_local_tunnel
   end
 
   # Resolve local path relative to markdown file directory
@@ -289,7 +396,10 @@ def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
   remote_path = "#{remote_dir}/#{remote_filename}".gsub(%r{//+}, '/')
 
   begin
-    Net::SSH.start(hostname, username, password: password, port: port) do |ssh|
+    # Net::SSH will use SSH config if hostname is an alias (like 'dh')
+    # It will automatically use keys, username, hostname, and port from ~/.ssh/config
+    # If username is provided, use it; otherwise let SSH config provide it
+    Net::SSH.start(hostname, username, ssh_options) do |ssh|
       ssh.sftp.connect do |sftp|
         # Ensure remote directory exists
         begin
@@ -307,6 +417,21 @@ def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
     cdn_url = cdn_config['url'].chomp('/')
     subdir_path = subdirectory.empty? ? '' : "#{subdirectory}/"
     "#{cdn_url}/#{subdir_path}#{remote_filename}"
+  rescue NotImplementedError => e
+    if e.message.include?('ed25519')
+      warn 'Error: ed25519 SSH key support requires additional gems.'
+      warn '  Install with: gem install ed25519 bcrypt_pbkdf'
+      warn '  Or run: bundle install'
+      return nil
+    end
+    raise
+  rescue Net::SSH::HostKeyMismatch => e
+    warn "Error: SSH host key fingerprint mismatch for #{hostname}"
+    warn "  Fingerprint: #{e.fingerprint}"
+    warn "  Host: #{e.host}"
+    warn "  This usually means the server's key has changed or there's a mismatch in known_hosts"
+    warn "  To fix: Remove the old entry from ~/.ssh/known_hosts or update it with: ssh-keygen -R #{e.host || hostname}"
+    nil
   rescue StandardError => e
     warn "Error uploading via SFTP: #{e.message}"
     nil
