@@ -1,3 +1,49 @@
+#### CHANGED
+
+- CDN configuration supports optional subdirectory, region, and ACL settings
+- Test email sending sends both HTML and plain text versions as multipart/alternative message
+- CDN uploads now use original filenames by default instead of adding timestamps
+- Default overwrite behavior changed from false to ask (prompts when file exists)
+
+#### NEW
+
+- Added CDN image upload functionality supporting S3, SCP, and SFTP upload methods
+- Added automatic detection and upload of local images in Markdown files with URL replacement in output HTML
+- Added --test-send flag to send test emails directly via SMTP without creating Sendy campaigns
+- Added SMTP configuration section with support for host, port, authentication, STARTTLS, and SSL
+- Added Gemfile for easy dependency management with bundle install
+- Added content-type detection for image uploads based on file extension
+- Added cache-control headers to S3 uploads for better email client compatibility
+- Added support for ed25519 SSH keys by including ed25519 and bcrypt_pbkdf gems in Gemfile
+- Added {% stack %} liquid tag for creating vertical stacks of images with no spacing between them
+- Stack tag supports markdown image syntax with optional links: [![](path)](url) or ![](path)
+- Stack tag supports YAML syntax with type="yaml" attribute for structured image definitions
+- Added CDN overwrite configuration option with three modes: true (always), false (never), ask/prompt (default)
+- Added file existence checking for S3, SFTP, and SCP uploads before overwriting
+- Added interactive prompt for overwrite confirmation with single-character input (no Enter required)
+
+#### IMPROVED
+
+- S3 uploads now set public-read ACL by default (with graceful handling for ACL-disabled buckets)
+- Image path resolution now handles absolute paths, relative paths, and paths relative to markdown file directory
+- SCP/SFTP uploads now support SSH key-based authentication using SSH config aliases (username and password optional)
+- SCP/SFTP uploads now automatically expand ~ in remote paths to the user's home directory
+- SCP/SFTP uploads now use system known_hosts file for host key verification
+- SCP/SFTP error messages now include local file path and remote path for debugging
+- Overwrite prompt now includes verbose description explaining timestamp behavior
+- Overwrite prompt defaults to Yes (Y/n) instead of No (y/N)
+- Stack images use table-based layout for maximum email client compatibility
+- Stack images are excluded from standard image styling to prevent double-wrapping
+- Stack images render with zero vertical spacing and full width of content area
+
+#### FIXED
+
+- S3 uploads now set correct content-type headers to prevent images from downloading instead of displaying
+- Error handling for missing CDN upload gems with helpful installation messages
+- SCP upload error handling now properly handles StringWithExitstatus objects and provides better error messages
+- Host key mismatch errors now show correct fingerprint and host information
+- Stack images now upload to CDN correctly by processing placeholders before CDN upload
+
 ### 1.0.7
 
 2026-01-17 04:05

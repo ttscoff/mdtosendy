@@ -13,7 +13,7 @@ require 'time'
 require 'fileutils'
 
 # Version
-VERSION = '1.0.8'
+VERSION = '1.0.9'
 
 # Simple CSS parser for converting CSS rules to inline styles
 # Handles basic selectors and properties for email styling
