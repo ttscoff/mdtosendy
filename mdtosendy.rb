@@ -65,6 +65,306 @@ class CSSParser
   end
 end
 
+# Optional requires for CDN upload functionality
+begin
+  require 'aws-sdk-s3' if defined?(Gem)
+rescue LoadError
+  # aws-sdk-s3 not available, S3 uploads will not work
+end
+
+begin
+  require 'net/scp' if defined?(Gem)
+  require 'net/ssh' if defined?(Gem)
+rescue LoadError
+  # net-scp/net-ssh not available, SCP/SFTP uploads will not work
+end
+
+# Upload image to S3
+def upload_image_to_s3(local_path, cdn_config, markdown_file_dir)
+  begin
+    require 'aws-sdk-s3'
+  rescue LoadError
+    warn 'Error: aws-sdk-s3 gem is required for S3 uploads. Install with: gem install aws-sdk-s3'
+    return nil
+  end
+
+  access_key_id = cdn_config['username']
+  secret_access_key = cdn_config['password']
+  bucket_name = cdn_config['path']
+  subdirectory = cdn_config['subdirectory'] || ''
+
+  unless access_key_id && secret_access_key && bucket_name
+    warn 'Error: S3 configuration incomplete. Need username (access key), password (secret key), and path (bucket name)'
+    return nil
+  end
+
+  # Resolve local path relative to markdown file directory
+  # Try absolute path first, then relative to markdown file directory
+  absolute_path = nil
+  if File.exist?(local_path)
+    absolute_path = File.expand_path(local_path)
+  elsif File.exist?(File.join(markdown_file_dir, local_path))
+    absolute_path = File.expand_path(File.join(markdown_file_dir, local_path))
+  elsif File.exist?(File.expand_path(local_path))
+    absolute_path = File.expand_path(local_path)
+  else
+    warn "Warning: Image file not found: #{local_path} (searched in: #{markdown_file_dir})"
+    return nil
+  end
+
+  # Generate remote filename (preserve original filename, add timestamp for uniqueness)
+  filename = File.basename(absolute_path)
+  timestamp = Time.now.strftime('%Y%m%d%H%M%S')
+  name_without_ext = File.basename(filename, File.extname(filename))
+  ext = File.extname(filename)
+  remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+  remote_path = subdirectory.empty? ? remote_filename : "#{subdirectory}/#{remote_filename}"
+
+  # Determine content type from file extension
+  content_type_map = {
+    '.jpg' => 'image/jpeg',
+    '.jpeg' => 'image/jpeg',
+    '.png' => 'image/png',
+    '.gif' => 'image/gif',
+    '.webp' => 'image/webp',
+    '.svg' => 'image/svg+xml',
+    '.bmp' => 'image/bmp',
+    '.ico' => 'image/x-icon',
+    '.tiff' => 'image/tiff',
+    '.tif' => 'image/tiff'
+  }
+  content_type = content_type_map[ext.downcase] || 'image/jpeg' # Default to jpeg if unknown
+
+  begin
+    # Get region from config or use default
+    region = cdn_config['region'] || 'us-east-1'
+
+    s3_client = Aws::S3::Client.new(
+      access_key_id: access_key_id,
+      secret_access_key: secret_access_key,
+      region: region
+    )
+
+    File.open(absolute_path, 'rb') do |file|
+      upload_params = {
+        bucket: bucket_name,
+        key: remote_path,
+        body: file,
+        content_type: content_type,
+        cache_control: 'public, max-age=31536000' # Cache for 1 year
+      }
+      # Set ACL if configured, otherwise try to make it public-readable
+      # Note: If bucket has ACLs disabled, you'll need a bucket policy instead
+      if cdn_config['acl']
+        upload_params[:acl] = cdn_config['acl']
+      else
+        # Try to set public-read ACL (will fail if ACLs are disabled)
+        upload_params[:acl] = 'public-read'
+      end
+
+      s3_client.put_object(upload_params)
+    rescue Aws::S3::Errors::AccessDenied => e
+      # ACL might be disabled, warn user but continue
+      warn "Warning: Could not set ACL (bucket may have ACLs disabled): #{e.message}"
+      warn "  Ensure your S3 bucket policy allows public read access for email clients"
+    end
+
+    # Construct CDN URL
+    cdn_url = cdn_config['url'].chomp('/')
+    final_url = "#{cdn_url}/#{remote_path}"
+    
+    final_url
+  rescue StandardError => e
+    warn "Error uploading to S3: #{e.message}"
+    nil
+  end
+end
+
+# Upload image via SCP
+def upload_image_via_scp(local_path, cdn_config, markdown_file_dir)
+  begin
+    require 'net/scp'
+    require 'net/ssh'
+  rescue LoadError
+    warn 'Error: net-scp and net-ssh gems are required for SCP uploads. Install with: gem install net-scp net-ssh'
+    return nil
+  end
+
+  hostname = cdn_config['hostname']
+  username = cdn_config['username']
+  password = cdn_config['password']
+  remote_path_base = cdn_config['path'] || '/'
+  subdirectory = cdn_config['subdirectory'] || ''
+  port = cdn_config['port'] || 22
+
+  unless hostname && username && password
+    warn 'Error: SCP configuration incomplete. Need hostname, username, and password'
+    return nil
+  end
+
+  # Resolve local path relative to markdown file directory
+  # Try absolute path first, then relative to markdown file directory
+  absolute_path = nil
+  if File.exist?(local_path)
+    absolute_path = File.expand_path(local_path)
+  elsif File.exist?(File.join(markdown_file_dir, local_path))
+    absolute_path = File.expand_path(File.join(markdown_file_dir, local_path))
+  elsif File.exist?(File.expand_path(local_path))
+    absolute_path = File.expand_path(local_path)
+  else
+    warn "Warning: Image file not found: #{local_path} (searched in: #{markdown_file_dir})"
+    return nil
+  end
+
+  # Generate remote filename
+  filename = File.basename(absolute_path)
+  timestamp = Time.now.strftime('%Y%m%d%H%M%S')
+  name_without_ext = File.basename(filename, File.extname(filename))
+  ext = File.extname(filename)
+  remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+  remote_dir = subdirectory.empty? ? remote_path_base : "#{remote_path_base}/#{subdirectory}".gsub(%r{//+}, '/')
+  remote_path = "#{remote_dir}/#{remote_filename}".gsub(%r{//+}, '/')
+
+  begin
+    Net::SSH.start(hostname, username, password: password, port: port) do |ssh|
+      # Ensure remote directory exists
+      ssh.exec!("mkdir -p #{remote_dir}")
+
+      # Upload file
+      ssh.scp.upload!(absolute_path, remote_path)
+    end
+
+    cdn_url = cdn_config['url'].chomp('/')
+    subdir_path = subdirectory.empty? ? '' : "#{subdirectory}/"
+    "#{cdn_url}/#{subdir_path}#{remote_filename}"
+  rescue StandardError => e
+    warn "Error uploading via SCP: #{e.message}"
+    nil
+  end
+end
+
+# Upload image via SFTP
+def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
+  begin
+    require 'net/ssh'
+    require 'net/sftp'
+  rescue LoadError
+    warn 'Error: net-ssh gem is required for SFTP uploads. Install with: gem install net-ssh'
+    return nil
+  end
+
+  hostname = cdn_config['hostname']
+  username = cdn_config['username']
+  password = cdn_config['password']
+  remote_path_base = cdn_config['path'] || '/'
+  subdirectory = cdn_config['subdirectory'] || ''
+  port = cdn_config['port'] || 22
+
+  unless hostname && username && password
+    warn 'Error: SFTP configuration incomplete. Need hostname, username, and password'
+    return nil
+  end
+
+  # Resolve local path relative to markdown file directory
+  # Try absolute path first, then relative to markdown file directory
+  absolute_path = nil
+  if File.exist?(local_path)
+    absolute_path = File.expand_path(local_path)
+  elsif File.exist?(File.join(markdown_file_dir, local_path))
+    absolute_path = File.expand_path(File.join(markdown_file_dir, local_path))
+  elsif File.exist?(File.expand_path(local_path))
+    absolute_path = File.expand_path(local_path)
+  else
+    warn "Warning: Image file not found: #{local_path} (searched in: #{markdown_file_dir})"
+    return nil
+  end
+
+  # Generate remote filename
+  filename = File.basename(absolute_path)
+  timestamp = Time.now.strftime('%Y%m%d%H%M%S')
+  name_without_ext = File.basename(filename, File.extname(filename))
+  ext = File.extname(filename)
+  remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+  remote_dir = subdirectory.empty? ? remote_path_base : "#{remote_path_base}/#{subdirectory}".gsub(%r{//+}, '/')
+  remote_path = "#{remote_dir}/#{remote_filename}".gsub(%r{//+}, '/')
+
+  begin
+    Net::SSH.start(hostname, username, password: password, port: port) do |ssh|
+      ssh.sftp.connect do |sftp|
+        # Ensure remote directory exists
+        begin
+          sftp.mkdir!(remote_dir)
+        rescue Net::SFTP::StatusException => e
+          # Directory might already exist, ignore error
+          raise e unless e.code == 4 # SSH_FX_FAILURE
+        end
+
+        # Upload file
+        sftp.upload!(absolute_path, remote_path)
+      end
+    end
+
+    cdn_url = cdn_config['url'].chomp('/')
+    subdir_path = subdirectory.empty? ? '' : "#{subdirectory}/"
+    "#{cdn_url}/#{subdir_path}#{remote_filename}"
+  rescue StandardError => e
+    warn "Error uploading via SFTP: #{e.message}"
+    nil
+  end
+end
+
+# Check if a URL is a local file path
+def local_image?(url)
+  return false if url.nil? || url.strip.empty?
+
+  # Check if it"s a URL protocol (http://, https://, //, data:, mailto:, etc.)"
+  return false if url =~ %r{^[a-z][a-z0-9+.-]*://}i # Any protocol (http://, ftp://, etc.)
+  return false if url =~ %r{^//} # Protocol-relative URL (//example.com/image.jpg)
+  return false if url =~ /^data:/i # Data URI
+  return false if url =~ /^mailto:/i # Mailto link
+  return false if url =~ /^#/ # Anchor link
+
+  # Check if it looks like a local file path
+  # Starts with / (absolute path), ./ (relative), ../ (parent relative), or just a filename
+  # Also check for Windows paths (C:\, D:\, etc.)
+  url.strip =~ %r{^(/|\./|\.\./|[a-z]:[/\\]|^[^/\\:]+\.(jpg|jpeg|png|gif|webp|svg|bmp|ico))}i
+end
+
+# Upload local images in HTML and replace URLs
+def upload_and_replace_images(html_content, cdn_config, markdown_file_dir)
+  return html_content unless cdn_config && cdn_config['url'] && cdn_config['type']
+
+  doc = Nokogiri::HTML::DocumentFragment.parse(html_content)
+  uploaded_count = 0
+
+  doc.css('img').each do |img|
+    src = img['src']
+    next unless src && local_image?(src)
+
+    # Determine upload method based on type
+    cdn_url = case cdn_config['type'].downcase
+              when 's3'
+                upload_image_to_s3(src, cdn_config, markdown_file_dir)
+              when 'scp'
+                upload_image_via_scp(src, cdn_config, markdown_file_dir)
+              when 'sftp'
+                upload_image_via_sftp(src, cdn_config, markdown_file_dir)
+              else
+                warn "Error: Unknown CDN type: #{cdn_config['type']}. Supported types: s3, scp, sftp"
+                next
+              end
+
+    next unless cdn_url
+
+    img['src'] = cdn_url
+    uploaded_count += 1
+    puts "Uploaded image: #{src} -> #{cdn_url}"
+  end
+
+  puts "Uploaded #{uploaded_count} image(s) to CDN" if uploaded_count > 0
+  doc.to_html
+end
+
 # Get config directory
 def config_dir
   File.join(Dir.home, '.config', 'mdtosendy')
@@ -1843,6 +2143,13 @@ if markdown_file
   # Convert Markdown to HTML
   processor = config.dig('markdown', 'processor') || 'apex'
   html_content = markdown_to_html(processed_markdown, processor)
+
+  # Upload local images to CDN if configured
+  cdn_config = config['cdn']
+  if cdn_config && cdn_config['url'] && cdn_config['type']
+    markdown_file_dir = File.dirname(File.expand_path(markdown_file))
+    html_content = upload_and_replace_images(html_content, cdn_config, markdown_file_dir)
+  end
 
   # Process greeting placeholders - convert greeting text to HTML (but don't apply styles yet)
   # We'll apply styles after all HTML is processed

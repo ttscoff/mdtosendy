@@ -9,6 +9,8 @@ A Ruby script that converts Markdown files to email-ready HTML and plain text, w
 - 📝 **Markdown to HTML conversion** - Write emails in Markdown, get beautiful HTML output
 - 🎨 **CSS to inline styles** - Maintain styles in CSS files, automatically converted to inline styles for email compatibility
 - 📧 **Sendy integration** - Automatically create and schedule campaigns in Sendy
+- 📤 **Test email sending** - Send test emails directly via SMTP without creating campaigns
+- 🖼️ **CDN image upload** - Automatically upload local images to CDN (S3, SCP, or SFTP) and replace URLs
 - 🔧 **Fully configurable** - Customize templates, styles, and settings via YAML and CSS files
 - 🎭 **Multi-template system** - Create multiple email templates with parent/child inheritance
 - 🎨 **Button variants** - Support for primary, secondary, and tertiary button styles
@@ -204,6 +206,13 @@ mdtosendy --create-template darktheme --parent mytemplate
 mdtosendy --dev --template mytemplate
 ```
 
+**Send test email directly (bypasses Sendy):**
+```bash
+mdtosendy --test-send your-email@example.com your-email.md
+```
+
+This sends a test email directly via SMTP without creating a Sendy campaign. Requires SMTP configuration in `config.yml` (see [SMTP Configuration](#smtp-configuration) below).
+
 **Combine flags:**
 ```bash
 mdtosendy --validate --preview your-email.md
@@ -348,6 +357,8 @@ Located at `~/.config/mdtosendy/config.yml` (base config) and optionally `~/.con
 - **template**: Header image, signature, primary footer, URLs, greeting, and template variables
 - **paths**: File paths for template and styles
 - **markdown**: Markdown processor to use (default: `apex`). See [Prerequisites](#prerequisites) for installation options.
+- **cdn**: CDN image upload settings (optional). See [CDN Image Upload](#cdn-image-upload) below.
+- **smtp**: SMTP settings for test email sending (optional). See [SMTP Configuration](#smtp-configuration) below.
 
 **Configuration Hierarchy:**
 1. Base config (`~/.config/mdtosendy/config.yml`) - Shared settings like Sendy API credentials
@@ -545,6 +556,164 @@ This creates `~/.config/mdtosendy/email-dev.html` with:
 - Proper wrapper classes for accurate styling
 
 Edit the CSS file and refresh the browser to see changes immediately.
+
+## CDN Image Upload
+
+mdtosendy can automatically detect local images in your Markdown files, upload them to a CDN, and replace the URLs in the output HTML with CDN URLs. This is useful for ensuring images are accessible in emails without hosting them locally.
+
+### Installation
+
+First, install the required gems using Bundler:
+
+```bash
+# If you haven't already, install bundler
+gem install bundler
+
+# Install dependencies from Gemfile
+bundle install
+```
+
+The Gemfile includes:
+- `nokogiri` - Required for HTML parsing
+- `aws-sdk-s3` - For S3 uploads (if using S3)
+- `net-scp` and `net-ssh` - For SCP/SFTP uploads (if using SCP/SFTP)
+
+You only need to install the gems for the upload method you plan to use. The code handles missing gems gracefully.
+
+### Configuration
+
+Add CDN configuration to your `config.yml`:
+
+```yaml
+cdn:
+  # Base URL for CDN (required)
+  url: "https://cdn.markedapp.com"
+
+  # Upload type: s3, scp, or sftp
+  type: "s3"
+
+  # For S3: username = access key, password = secret key, path = bucket name
+  # For SCP/SFTP: username = SSH username, password = SSH password, path = remote directory
+  username: "your-access-key-id"
+  password: "your-secret-access-key"
+  path: "your-bucket-name"
+
+  # Optional: hostname (required for SCP/SFTP, not used for S3)
+  # hostname: "example.com"
+
+  # Optional: port (defaults to 22 for SCP/SFTP, not used for S3)
+  # port: 22
+
+  # Optional: subdirectory within bucket/path to store images
+  # subdirectory: "images"
+
+  # Optional: AWS region for S3 (defaults to us-east-1)
+  # region: "us-west-2"
+
+  # Optional: S3 ACL (e.g., "public-read"). Leave unset if bucket has ACLs disabled.
+  # acl: "public-read"
+```
+
+### S3 Configuration Example
+
+For AWS S3:
+
+```yaml
+cdn:
+  url: "https://cdn.example.com"
+  type: "s3"
+  username: "AKIAIOSFODNN7EXAMPLE"  # AWS Access Key ID
+  password: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # AWS Secret Access Key
+  path: "my-bucket-name"
+  subdirectory: "email-images"
+  region: "us-west-2"
+```
+
+### SCP/SFTP Configuration Example
+
+For SCP or SFTP:
+
+```yaml
+cdn:
+  url: "https://cdn.example.com"
+  type: "sftp"  # or "scp"
+  hostname: "example.com"
+  username: "myuser"
+  password: "mypassword"
+  path: "/var/www/cdn/images"
+  port: 22
+  subdirectory: "emails"
+```
+
+### How It Works
+
+1. When processing a Markdown file, mdtosendy scans the HTML for local image references
+2. Local images are identified (anything that's not an HTTP/HTTPS URL, data URI, etc.)
+3. Each local image is uploaded to your configured CDN
+4. Images are renamed with timestamps to avoid conflicts (e.g., `image_20240115143022.jpg`)
+5. The image URLs in the output HTML are automatically replaced with CDN URLs
+
+**Example:**
+
+If your Markdown contains:
+```markdown
+![My Image](./images/photo.jpg)
+```
+
+And you have CDN configured, the output HTML will have:
+```html
+<img src="https://cdn.example.com/images/photo_20240115143022.jpg" alt="My Image">
+```
+
+The original file `./images/photo.jpg` will be uploaded to your CDN automatically.
+
+### Notes
+
+- Images are resolved relative to the Markdown file's directory
+- If an image file is not found, a warning is displayed and processing continues
+- Upload errors are displayed but don't stop email generation
+- The feature is optional - if CDN is not configured, local image URLs are left unchanged
+
+## SMTP Configuration
+
+To use the `--test-send` feature, configure SMTP settings in your `config.yml`:
+
+```yaml
+smtp:
+  host: "smtp.gmail.com"
+  port: 587
+  domain: "gmail.com"
+  user: "me@example.com"
+  password: "your-app-password-here"
+  auth: "plain"
+  starttls: true
+```
+
+**Gmail Setup:**
+
+For Gmail, you'll need to:
+1. Enable 2-factor authentication
+2. Generate an App Password at https://myaccount.google.com/apppasswords
+3. Use the App Password (not your regular password) in the configuration
+
+**Alternative Gmail configuration (SSL on port 465):**
+```yaml
+smtp:
+  host: "smtp.gmail.com"
+  port: 465
+  domain: "gmail.com"
+  user: "me@example.com"
+  password: "your-app-password-here"
+  ssl: true
+  starttls: false
+```
+
+**Other SMTP providers:**
+
+Most SMTP providers follow a similar pattern. Check your provider's documentation for:
+- SMTP host and port
+- Authentication method (usually "plain")
+- Whether STARTTLS or SSL is required
 
 ## File Locations
 

@@ -80,3 +80,40 @@ paths:
 markdown:
   processor: "apex" # or 'pandoc', 'kramdown', etc.
 
+# CDN Image Upload Settings (optional)
+# Automatically upload local images to CDN and replace URLs in output HTML
+# cdn:
+#   # Base URL for CDN (required if cdn is enabled)
+#   url: "https://cdn.markedapp.com"
+#   # Upload type: s3, scp, or sftp
+#   type: "s3"
+#   # For S3: username = access key, password = secret key, path = bucket name
+#   # For SCP/SFTP: username = SSH username, password = SSH password, path = remote directory
+#   username: "your-access-key-id"
+#   password: "your-secret-access-key"
+#   path: "your-bucket-name"
+#   # Optional: hostname (required for SCP/SFTP, not used for S3)
+#   # hostname: "example.com"
+#   # Optional: port (defaults to 22 for SCP/SFTP, not used for S3)
+#   # port: 22
+#   # Optional: subdirectory within bucket/path to store images
+#   # subdirectory: "images"
+#   # Optional: AWS region for S3 (defaults to us-east-1)
+#   # region: "us-west-2"
+#   # Optional: S3 ACL (e.g., "public-read"). Leave unset if bucket has ACLs disabled.
+#   # If ACLs are disabled, ensure your bucket has a policy allowing public read access.
+#   # Example bucket policy:
+#   # {
+#   #   "Version": "2012-10-17",
+#   #   "Statement": [
+#   #     {
+#   #       "Sid": "PublicReadGetObject",
+#   #       "Effect": "Allow",
+#   #       "Principal": "*",
+#   #       "Action": "s3:GetObject",
+#   #       "Resource": "arn:aws:s3:::your-bucket-name/*"
+#   #     }
+#   #   ]
+#   # }
+#   # acl: "public-read"
+

@@ -1,11 +1,3 @@
-#### NEW
-
-- Added --test-send EMAIL_ADDRESS flag to send test emails directly via SMTP without going through Sendy
-- Added SMTP configuration section with support for host, port, authentication, STARTTLS, and SSL
-- Test email sends both HTML and plain text versions as multipart/alternative message
-- Test email mode skips Sendy campaign creation and exits after sending
-- Added Gmail-specific SMTP configuration examples in config.example.yml
-
 ### 1.0.7
 
 2026-01-17 04:05

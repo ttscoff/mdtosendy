@@ -19,4 +19,8 @@ Lists get converted into tables:
 
 [floated]: https://stuff.brettterpstra.com/446-200x300.jpg style="float:right"
 
+You can have images automatically uploaded to a CDN when local file paths are detected by adding a `cdn:` configuration.
+
+[![Uploaded](/Users/ttscoff/Desktop/FullDiskAccessScreenShot.png)](https://brettterpstra.com)
+
 Signature lines are automatically added, you don't need to include a signoff in your Markdown.
