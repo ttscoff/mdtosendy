@@ -27,8 +27,13 @@ Brett Terpstra (https://brettterpstra.com), Your Friendly Neighborhood Blogger
 ---
 
 Copyright © 2025 Brett Terpstra
-22305 E Burns Valley Rd
-Winona, MN 55987
+
+- Brettterpstra.com (https://brettterpstra.com)
+- Marked (https://markedapp.com)
+- nvUltra (https://nvultra.com)
+- GitHub (https://github.com/ttscoff)
+- Mastodon (https://hachyderm.io/@ttscoff)
+- Facebook (https://facebook.com/ttscoff)
 Web Version: [webversion]
 Unsubscribe: [unsubscribe]
 

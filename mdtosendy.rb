@@ -7,6 +7,7 @@ require 'yaml'
 require 'uri'
 require 'net/http'
 require 'net/https'
+require 'net/smtp'
 require 'openssl'
 require 'time'
 require 'fileutils'
@@ -764,7 +765,7 @@ end
 def parse_reference_definitions(markdown_content)
   references = {}
   # Match reference definitions: [name]: URL (with optional title)
-  markdown_content.scan(/^\[([^\]]+)\]:\s+(\S+)(?:\s+["']([^"']+)["'])?\s*$/i) do |name, url, title|
+  markdown_content.scan(/^\[([^\]]+)\]:\s+(\S+)(?:\s+["']([^"']+)["'])?\s*$/i) do |name, url, _title|
     # Store with lowercase key for case-insensitive lookup
     references[name.strip.downcase] = url.strip
   end
@@ -819,9 +820,7 @@ def process_button_tags(markdown_content, references = {})
 
     # Check if first arg looks like a URL (starts with http:// or https://)
     # If so, this is actually a 2-arg pattern, skip it
-    if potential_class =~ /^https?:\/\//
-      next match
-    end
+    next match if potential_class =~ %r{^https?://}
 
     # Check if URL parameter is a reference (in square brackets or just the reference name)
     # Reference matching is case-insensitive
@@ -899,6 +898,76 @@ def markdown_to_plain_text(markdown_content)
   plain_text = plain_text.gsub(/\r\n/, "\n") # Normalize line endings
   plain_text = plain_text.gsub(/\n{3,}/, "\n\n") # Collapse excessive newlines
   plain_text.strip
+end
+
+# Send test email directly via SMTP
+def send_test_email(to_address, subject, html_content, plain_text_content, config)
+  email_config = config['email'] || {}
+  smtp_config = config['smtp'] || {}
+
+  from_name = email_config['from_name'] || 'Test Sender'
+  from_email = email_config['from_email']
+  reply_to = email_config['reply_to'] || from_email
+
+  unless from_email
+    warn 'Error: email.from_email not configured in config.yml (required for --test-send)'
+    return false
+  end
+
+  smtp_host = smtp_config['host'] || 'localhost'
+  smtp_port = smtp_config['port'] || 25
+  smtp_domain = smtp_config['domain'] || 'localhost'
+  smtp_user = smtp_config['user']
+  smtp_password = smtp_config['password']
+  smtp_auth = smtp_config['auth'] || (smtp_user && smtp_password ? 'plain' : nil)
+  smtp_starttls = smtp_config['starttls'] || false
+  smtp_ssl = smtp_config['ssl'] || false
+
+  # Create email message
+  message = <<~MESSAGE
+    From: #{from_name} <#{from_email}>
+    To: #{to_address}
+    Reply-To: #{reply_to}
+    Subject: #{subject}
+    MIME-Version: 1.0
+    Content-Type: multipart/alternative; boundary="mdtosendy_boundary"
+
+    --mdtosendy_boundary
+    Content-Type: text/plain; charset=UTF-8
+    Content-Transfer-Encoding: 7bit
+
+    #{plain_text_content}
+
+    --mdtosendy_boundary
+    Content-Type: text/html; charset=UTF-8
+    Content-Transfer-Encoding: 7bit
+
+    #{html_content}
+
+    --mdtosendy_boundary--
+  MESSAGE
+
+  begin
+    smtp = Net::SMTP.new(smtp_host, smtp_port)
+    smtp.enable_starttls if smtp_starttls
+    smtp.enable_ssl if smtp_ssl
+
+    if smtp_user && smtp_password
+      auth_method = smtp_auth ? smtp_auth.to_sym : :plain
+      smtp.start(smtp_domain, smtp_user, smtp_password, auth_method) do |smtp_session|
+        smtp_session.send_message(message, from_email, to_address)
+      end
+    else
+      smtp.start(smtp_domain) do |smtp_session|
+        smtp_session.send_message(message, from_email, to_address)
+      end
+    end
+    puts "Test email sent successfully to #{to_address}"
+    true
+  rescue StandardError => e
+    warn "Error sending test email: #{e.message}"
+    false
+  end
 end
 
 # Validate configuration
@@ -1573,7 +1642,8 @@ def parse_args
     template: 'default',
     create_template: nil,
     parent: nil,
-    dev: false
+    dev: false,
+    test_send: nil
   }
 
   # Remove flags from args
@@ -1617,11 +1687,21 @@ def parse_args
         warn 'Error: --parent requires a parent template name'
         exit 1
       end
+    when '--test-send'
+      if i + 1 < args.length
+        flags[:test_send] = args[i + 1]
+        args.delete_at(i + 1)
+        args.delete_at(i)
+      else
+        warn 'Error: --test-send requires an email address'
+        exit 1
+      end
     when '--help', '-h'
       puts "Usage: #{$0} [OPTIONS] <markdown_file>"
       puts "\nOptions:"
       puts '  --validate, -v           Validate configuration and styles without processing'
       puts '  --preview, -p            Open generated HTML in browser after processing'
+      puts '  --test-send EMAIL        Send test email directly to EMAIL address (bypasses Sendy)'
       puts '  --dev                    Generate email-dev.html for template development'
       puts '  --template NAME, -t      Use template NAME (default: default)'
       puts '  --create-template NAME, -c   Create a new template directory with default files'
@@ -2008,6 +2088,17 @@ if markdown_file
     puts "\nPreview mode: Skipping Sendy campaign creation."
     exit 0
   end
+
+  # Send test email if requested
+  if flags[:test_send]
+    subject = yaml_config && yaml_config['title'] ? yaml_config['title'] : 'Test Email'
+    if send_test_email(flags[:test_send], subject, final_html, plain_text, config)
+      puts "\nTest email mode: Skipping Sendy campaign creation."
+      exit 0
+    else
+      exit 1
+    end
+  end
 elsif ARGV.empty?
   # Show usage if no arguments provided
   puts "Usage: #{$0} [OPTIONS] <markdown_file>"
@@ -2022,6 +2113,7 @@ elsif ARGV.empty?
   puts "  #{$0} email.md                           # Generate HTML and TXT files"
   puts "  #{$0} --validate                          # Validate configuration only"
   puts "  #{$0} --preview email.md                  # Generate and preview in browser"
+  puts "  #{$0} --test-send test@example.com email.md  # Send test email directly"
   puts "  #{$0} --template brettterpstra.com email.md  # Use specific template"
   puts "  #{$0} --create-template mytemplate        # Create a new template"
   puts "  #{$0} --create-template child --parent base  # Create child template"
@@ -2033,8 +2125,8 @@ else
   exit 1
 end
 
-# Create Sendy campaign if YAML config has title (skip if preview mode)
-unless flags[:preview]
+# Create Sendy campaign if YAML config has title (skip if preview mode or test-send mode)
+unless flags[:preview] || flags[:test_send]
   if yaml_config && yaml_config['title']
     sendy_config = config['sendy'] || {}
     email_config = config['email'] || {}
@@ -2100,11 +2192,9 @@ unless flags[:preview]
       # Check for followup URL
       followup_url = sendy_config['followup_url']
       if followup_url && !followup_url.strip.empty?
-        print "Open the followup URL in your browser? (Y/n): "
+        print 'Open the followup URL in your browser? (Y/n): '
         response = $stdin.gets.chomp.strip.downcase
-        if response.empty? || response == 'y'
-          system('open', followup_url)
-        end
+        system('open', followup_url) if response.empty? || response == 'y'
       end
     else
       warn "Error creating campaign: #{res.code} #{res.message}"

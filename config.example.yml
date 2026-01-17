@@ -3,36 +3,57 @@
 
 # Sendy API Configuration
 sendy:
-  api_url: 'https://your-domain.com/api/campaigns/create.php'
-  api_key: 'your-api-key-here'
-  brand_id: '1'
-  list_ids: 'your-list-id-here'
+  api_url: "https://your-domain.com/api/campaigns/create.php"
+  api_key: "your-api-key-here"
+  brand_id: "1"
+  list_ids: "your-list-id-here"
   # Optional: URL to open in browser after creating a campaign (ignored for --preview)
   # followup_url: 'https://example.com/campaigns'
 
 # Email Settings
 email:
-  from_name: 'Your Name'
-  from_email: 'your-email@example.com'
-  reply_to: 'your-email@example.com'
+  from_name: "Your Name"
+  from_email: "your-email@example.com"
+  reply_to: "your-email@example.com"
+
+# SMTP Settings (required for --test-send)
+# Optional: If not configured, defaults to localhost:25
+smtp:
+  host: "smtp.gmail.com"
+  port: 587
+  domain: "gmail.com"
+  # Required for Gmail: Use your full email address
+  user: "me@example.com"
+  # Required for Gmail: Use an App Password (not your regular password)
+  # Generate at: https://myaccount.google.com/apppasswords
+  password: "your-app-password-here"
+  # Authentication method for Gmail
+  auth: "plain"
+  # Enable STARTTLS for Gmail (required for port 587)
+  starttls: true
+  # Alternative Gmail configuration using SSL (port 465):
+  # host: "smtp.gmail.com"
+  # port: 465
+  # ssl: true
+  # starttls: false
 
 # Campaign Settings
 campaign:
-  track_opens: '1'
-  track_clicks: '1'
-  default_timezone: 'America/Chicago'
+  track_opens: "1"
+  track_clicks: "1"
+  default_timezone: "America/Chicago"
 
 # Template Settings
 template:
-  header_image_url: 'https://your-domain.com/img/email/header.jpg'
-  header_image_alt: 'Email Header'
+  header_image_url: "https://your-domain.com/img/email/header.jpg"
+  header_image_alt: "Email Header"
   header_image_width: 600
   header_image_height: 185
-  signature_image_url: 'https://your-domain.com/img/signature.png'
-  signature_image_alt: 'Signature'
+  signature_image_url: "https://your-domain.com/img/signature.png"
+  signature_image_alt: "Signature"
   signature_image_width: 98
   signature_image_height: 98
-  signature_text: '-Your Name'
+  signature_text: "-Your Name"
   # Optional: Default greeting inserted after header image, before first paragraph
   # Can be overridden in YAML frontmatter with 'greeting: xxx' or 'salutation: xxx' or using {% greeting %} or {% salutation %} tag in markdown
   # greeting: 'Hey [Name,fallback=there],'
@@ -52,10 +73,10 @@ template:
 
 # File Paths
 paths:
-  template_file: 'email-template.html'
-  styles_file: 'styles.css'
+  template_file: "email-template.html"
+  styles_file: "styles.css"
 
 # Markdown Processor
 markdown:
-  processor: 'apex'  # or 'pandoc', 'kramdown', etc.
+  processor: "apex" # or 'pandoc', 'kramdown', etc.
 
