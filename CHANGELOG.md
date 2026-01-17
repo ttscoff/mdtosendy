@@ -1,6 +1,26 @@
+#### NEW
+
+- Added --test-send EMAIL_ADDRESS flag to send test emails directly via SMTP without going through Sendy
+- Added SMTP configuration section with support for host, port, authentication, STARTTLS, and SSL
+- Test email sends both HTML and plain text versions as multipart/alternative message
+- Test email mode skips Sendy campaign creation and exits after sending
+- Added Gmail-specific SMTP configuration examples in config.example.yml
+
+### 1.0.7
+
+2026-01-17 04:05
+
+#### NEW
+
+- Added --test-send EMAIL_ADDRESS flag to send test emails directly via SMTP without going through Sendy
+- Added SMTP configuration section with support for host, port, authentication, STARTTLS, and SSL
+- Test email sends both HTML and plain text versions as multipart/alternative message
+- Test email mode skips Sendy campaign creation and exits after sending
+- Added Gmail-specific SMTP configuration examples in config.example.yml
+
 ### 1.0.6
 
-2026-01-12 07:36
+2026-01-17 04:00
 
 #### CHANGED
 
@@ -11,9 +31,6 @@
 - Updated README to note greeting spacing is handled by table layout
 - Updated secondary button styling to match primary button appearance (border-radius, box-shadow, padding, font properties)
 - Updated styles.example.css and all template styles.css files with consistent secondary button styling
-
-#### NEW
-
 - Define a greeting in template configs to be inserted at the beginning of the email automatically
 - Use `{% greeting %}` to modify where the greeting is inserted
 - Use `{% greeting "Hey there!" %}` in the Markdown to override both location and content
@@ -33,13 +50,18 @@
 - Added followup_url config option in sendy section to automatically open a URL in browser after creating a campaign
 - Added interactive prompt asking user to confirm opening followup URL (defaults to yes)
 - Followup URL is ignored when using --preview flag since preview already opens in browser
-
-#### FIXED
-
 - Fixed NameError in get_button_selector function by adding styles as a parameter instead of accessing it from closure scope
 - Updated config files using Ruby instead of sed to work with Fish shell
 - Removed line breaks from default greeting insertion (spacing now handled by table layout)
 - Updated button tag regex patterns to support references with spaces in square brackets
+
+#### NEW
+
+- Added --test-send EMAIL_ADDRESS flag to send test emails directly via SMTP without going through Sendy
+- Added SMTP configuration section with support for host, port, authentication, STARTTLS, and SSL
+- Test email sends both HTML and plain text versions as multipart/alternative message
+- Test email mode skips Sendy campaign creation and exits after sending
+- Added Gmail-specific SMTP configuration examples in config.example.yml
 
 ### 1.0.5
 
