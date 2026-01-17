@@ -79,6 +79,74 @@ rescue LoadError
   # net-scp/net-ssh not available, SCP/SFTP uploads will not work
 end
 
+# Prompt user for confirmation
+def prompt_overwrite(filename, remote_path)
+  begin
+    require 'io/console'
+    use_getch = true
+  rescue LoadError
+    # Fallback to gets if io/console is not available
+    use_getch = false
+  end
+
+  print "File already exists on server: #{filename}\n"
+  print "If you choose not to overwrite, then a timestamp will be added to the filename to avoid conflicts.\n"
+  print "Overwrite? (Y/n): "
+
+  if use_getch
+    # Read single character without requiring Enter
+    char = $stdin.getch.downcase
+    puts char # Echo the character
+
+    # Default to yes: 'y' or Enter (which sends "\r" or "\n")
+    result = char == 'y' || char == "\r" || char == "\n"
+  else
+    # Fallback: read line (requires Enter)
+    response = $stdin.gets.chomp.downcase
+    result = response.empty? || response == 'y' || response == 'yes'
+  end
+
+  result
+end
+
+# Check if file exists on S3
+def s3_file_exists?(s3_client, bucket_name, remote_path)
+  begin
+    s3_client.head_object(bucket: bucket_name, key: remote_path)
+    true
+  rescue Aws::S3::Errors::NotFound
+    false
+  rescue StandardError
+    false # If we can't check, assume it doesn't exist
+  end
+end
+
+# Check if file exists on SFTP
+def sftp_file_exists?(sftp, remote_path)
+  begin
+    sftp.stat!(remote_path)
+    true
+  rescue Net::SFTP::StatusException => e
+    # SSH_FX_NO_SUCH_FILE = 2 means file doesn't exist
+    # Any other error, we'll assume file doesn't exist (safer)
+    false
+  rescue StandardError
+    false
+  end
+end
+
+# Check if file exists on remote via SSH
+def ssh_file_exists?(ssh, remote_path)
+  begin
+    # Use single quotes to safely escape the path (escape single quotes by ending quote, adding escaped quote, starting new quote)
+    escaped_path = remote_path.gsub("'", "'\"'\"'")
+    result = ssh.exec!("test -f '#{escaped_path}' && echo 'exists' || echo 'not_found'")
+    result.to_s.strip == 'exists'
+  rescue StandardError
+    false
+  end
+end
+
 # Upload image to S3
 def upload_image_to_s3(local_path, cdn_config, markdown_file_dir)
   begin
@@ -112,12 +180,22 @@ def upload_image_to_s3(local_path, cdn_config, markdown_file_dir)
     return nil
   end
 
-  # Generate remote filename (preserve original filename, add timestamp for uniqueness)
+  # Generate remote filename (start with original, add timestamp only if needed)
   filename = File.basename(absolute_path)
-  timestamp = Time.now.strftime('%Y%m%d%H%M%S')
   name_without_ext = File.basename(filename, File.extname(filename))
   ext = File.extname(filename)
-  remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+
+  # Determine overwrite mode: true (always), false (never), 'ask'/'prompt' (prompt), nil/not set (defaults to 'ask')
+  overwrite_setting = cdn_config['overwrite']
+  overwrite_always = overwrite_setting == true || overwrite_setting == 'true'
+  overwrite_never = overwrite_setting == false || overwrite_setting == 'false'
+  overwrite_prompt_explicit = !overwrite_setting.nil? && (overwrite_setting.to_s.downcase == 'ask' || overwrite_setting.to_s.downcase == 'prompt')
+  # Default to prompt mode if not explicitly set (nil) or explicitly set to 'ask'/'prompt'
+  overwrite_prompt = overwrite_setting.nil? || overwrite_prompt_explicit
+  overwrite_disabled = overwrite_never
+
+  # Start with original filename (default behavior)
+  remote_filename = filename
   remote_path = subdirectory.empty? ? remote_filename : "#{subdirectory}/#{remote_filename}"
 
   # Determine content type from file extension
@@ -144,6 +222,24 @@ def upload_image_to_s3(local_path, cdn_config, markdown_file_dir)
       secret_access_key: secret_access_key,
       region: region
     )
+
+    # Check if file exists and handle based on overwrite mode
+    if s3_file_exists?(s3_client, bucket_name, remote_path)
+      if overwrite_prompt
+        # Prompt for confirmation
+        unless prompt_overwrite(filename, remote_path)
+          puts "Skipping upload: #{filename}"
+          return nil
+        end
+        # User confirmed, proceed with overwrite using original filename
+      elsif overwrite_disabled
+        # Overwrite disabled and file exists - add timestamp to avoid overwriting
+        timestamp = Time.now.strftime('%Y%m%d%H%M%S')
+        remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+        remote_path = subdirectory.empty? ? remote_filename : "#{subdirectory}/#{remote_filename}"
+      end
+      # If overwrite_always, just proceed with overwrite (no prompt, no timestamp)
+    end
 
     File.open(absolute_path, 'rb') do |file|
       upload_params = {
@@ -245,12 +341,22 @@ def upload_image_via_scp(local_path, cdn_config, markdown_file_dir)
     return nil
   end
 
-  # Generate remote filename
+  # Generate remote filename (start with original, add timestamp only if needed)
   filename = File.basename(absolute_path)
-  timestamp = Time.now.strftime('%Y%m%d%H%M%S')
   name_without_ext = File.basename(filename, File.extname(filename))
   ext = File.extname(filename)
-  remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+
+  # Determine overwrite mode: true (always), false (never), 'ask'/'prompt' (prompt), nil/not set (defaults to 'ask')
+  overwrite_setting = cdn_config['overwrite']
+  overwrite_always = overwrite_setting == true || overwrite_setting == 'true'
+  overwrite_never = overwrite_setting == false || overwrite_setting == 'false'
+  overwrite_prompt_explicit = !overwrite_setting.nil? && (overwrite_setting.to_s.downcase == 'ask' || overwrite_setting.to_s.downcase == 'prompt')
+  # Default to prompt mode if not explicitly set (nil) or explicitly set to 'ask'/'prompt'
+  overwrite_prompt = overwrite_setting.nil? || overwrite_prompt_explicit
+  overwrite_disabled = overwrite_never
+
+  # Start with original filename (default behavior)
+  remote_filename = filename
   remote_dir = subdirectory.empty? ? remote_path_base : "#{remote_path_base}/#{subdirectory}".gsub(%r{//+}, '/')
   remote_path = "#{remote_dir}/#{remote_filename}".gsub(%r{//+}, '/')
 
@@ -269,6 +375,30 @@ def upload_image_via_scp(local_path, cdn_config, markdown_file_dir)
       else
         expanded_remote_dir = remote_dir
         expanded_remote_path = remote_path
+      end
+
+      # Check if file exists and handle based on overwrite mode
+      if ssh_file_exists?(ssh, expanded_remote_path)
+        if overwrite_prompt
+          # Prompt for confirmation
+          unless prompt_overwrite(filename, expanded_remote_path)
+            puts "Skipping upload: #{filename}"
+            return nil
+          end
+          # User confirmed, proceed with overwrite using original filename
+        elsif overwrite_disabled
+          # Overwrite disabled and file exists - add timestamp to avoid overwriting
+          timestamp = Time.now.strftime('%Y%m%d%H%M%S')
+          remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+          remote_path = "#{remote_dir}/#{remote_filename}".gsub(%r{//+}, '/')
+          # Re-expand path with new filename
+          if remote_dir.start_with?('~/')
+            expanded_remote_path = remote_path.sub(/^~/, home_dir)
+          else
+            expanded_remote_path = remote_path
+          end
+        end
+        # If overwrite_always, just proceed with overwrite (no prompt, no timestamp)
       end
 
       # Ensure remote directory exists
@@ -386,12 +516,22 @@ def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
     return nil
   end
 
-  # Generate remote filename
+  # Generate remote filename (start with original, add timestamp only if needed)
   filename = File.basename(absolute_path)
-  timestamp = Time.now.strftime('%Y%m%d%H%M%S')
   name_without_ext = File.basename(filename, File.extname(filename))
   ext = File.extname(filename)
-  remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+
+  # Determine overwrite mode: true (always), false (never), 'ask'/'prompt' (prompt), nil/not set (defaults to 'ask')
+  overwrite_setting = cdn_config['overwrite']
+  overwrite_always = overwrite_setting == true || overwrite_setting == 'true'
+  overwrite_never = overwrite_setting == false || overwrite_setting == 'false'
+  overwrite_prompt_explicit = !overwrite_setting.nil? && (overwrite_setting.to_s.downcase == 'ask' || overwrite_setting.to_s.downcase == 'prompt')
+  # Default to prompt mode if not explicitly set (nil) or explicitly set to 'ask'/'prompt'
+  overwrite_prompt = overwrite_setting.nil? || overwrite_prompt_explicit
+  overwrite_disabled = overwrite_never
+
+  # Start with original filename (default behavior)
+  remote_filename = filename
   remote_dir = subdirectory.empty? ? remote_path_base : "#{remote_path_base}/#{subdirectory}".gsub(%r{//+}, '/')
   remote_path = "#{remote_dir}/#{remote_filename}".gsub(%r{//+}, '/')
 
@@ -401,6 +541,24 @@ def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
     # If username is provided, use it; otherwise let SSH config provide it
     Net::SSH.start(hostname, username, ssh_options) do |ssh|
       ssh.sftp.connect do |sftp|
+        # Check if file exists and handle based on overwrite mode
+        if sftp_file_exists?(sftp, remote_path)
+          if overwrite_prompt
+            # Prompt for confirmation
+            unless prompt_overwrite(filename, remote_path)
+              puts "Skipping upload: #{filename}"
+              return nil
+            end
+            # User confirmed, proceed with overwrite using original filename
+          elsif overwrite_disabled
+            # Overwrite disabled and file exists - add timestamp to avoid overwriting
+            timestamp = Time.now.strftime('%Y%m%d%H%M%S')
+            remote_filename = "#{name_without_ext}_#{timestamp}#{ext}"
+            remote_path = "#{remote_dir}/#{remote_filename}".gsub(%r{//+}, '/')
+          end
+          # If overwrite_always, just proceed with overwrite (no prompt, no timestamp)
+        end
+
         # Ensure remote directory exists
         begin
           sftp.mkdir!(remote_dir)
@@ -1092,6 +1250,9 @@ def apply_email_styles(html_content, styles)
 
   # Style images
   doc.css('img').reverse.each do |img|
+    # Skip stack images - they're already in a table structure
+    next if img['class']&.include?('stack-image')
+
     existing_style = img['style'] || ''
     base_img_style = styles.style_string('img')
 
@@ -1303,6 +1464,97 @@ def process_button_tags(markdown_content, references = {})
   end
 
   processed_content
+end
+
+# Process liquid stack tags in markdown content
+# Returns: [processed_markdown, stack_html_map]
+# Supports two syntaxes:
+#   {% stack %}
+#   [![](/images/image1.png)](https://example.com/link1)
+#   [![](/images/image2.png)](https://example.com/link2)
+#   {% endstack %}
+#
+#   {% stack type="yaml" %}
+#   images:
+#     - path: /images/image1.png
+#       url: https://example.com/link1
+#     - path: /images/image2.png
+#       url: https://example.com/link2
+#   {% endstack %}
+def process_stack_tags(markdown_content)
+  processed_content = markdown_content.dup
+  stack_map = {}
+  placeholder_index = 0
+
+  # Pattern to match {% stack %} ... {% endstack %} blocks
+  # Handles optional attributes like type="yaml"
+  processed_content.gsub!(/\{%\s*stack\s*(.*?)\s*%\}(.*?)\{%\s*endstack\s*%\}/m) do
+    attributes = Regexp.last_match(1).strip
+    content = Regexp.last_match(2).strip
+
+    # Check if type="yaml" or type='yaml' is specified
+    is_yaml = attributes =~ /type\s*=\s*["']yaml["']/i
+
+    images = []
+    if is_yaml
+      # Parse YAML content
+      begin
+        yaml_data = YAML.safe_load(content)
+        if yaml_data && yaml_data['images']
+          yaml_data['images'].each do |img|
+            path = img['path'] || img[:path]
+            url = img['url'] || img[:url]
+            images << { path: path, url: url }
+          end
+        end
+      rescue StandardError => e
+        warn "Warning: Could not parse YAML in stack tag: #{e.message}"
+      end
+    else
+      # Parse markdown image links: [![](path)](url)
+      # Also handle images without links: ![](path)
+      # Pattern matches: [![](img_path)](link_url) or ![](img_path)
+      content.scan(/\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)|!\[([^\]]*)\]\(([^)]+)\)/) do |alt1, img_path1, link_url, alt2, img_path2|
+        if img_path1 && !img_path1.empty?
+          # Matched [![](path)](url) format
+          images << { path: img_path1, url: link_url }
+        elsif img_path2 && !img_path2.empty?
+          # Matched ![](path) format (no link)
+          images << { path: img_path2, url: nil }
+        end
+      end
+    end
+
+    # Generate HTML for the stack using table structure for email compatibility
+    # Each image is in its own table row with no spacing
+    table_rows = images.map do |img|
+      # Escape HTML entities in paths and URLs
+      escaped_path = (img[:path] || '').gsub('&', '&amp;').gsub('"', '&quot;').gsub('<', '&lt;').gsub('>', '&gt;')
+      escaped_url = if img[:url] && !img[:url].strip.empty?
+                      img[:url].gsub('&', '&amp;').gsub('"', '&quot;').gsub('<', '&lt;').gsub('>', '&gt;')
+                    else
+                      nil
+                    end
+
+      img_tag = "<img src=\"#{escaped_path}\" alt=\"\" class=\"stack-image\" style=\"display: block; width: 100%; height: auto; border: 0; margin: 0; padding: 0; vertical-align: top;\" />"
+      img_content = if escaped_url
+                      "<a href=\"#{escaped_url}\" style=\"display: block; text-decoration: none; border: 0; margin: 0; padding: 0;\">#{img_tag}</a>"
+                    else
+                      img_tag
+                    end
+
+      "<tr><td style=\"padding: 0; margin: 0; line-height: 0; font-size: 0;\">#{img_content}</td></tr>"
+    end
+
+    html = "<table role=\"presentation\" class=\"image-stack\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"width: 100%; margin: 0; padding: 0; border-collapse: collapse; border-spacing: 0;\"><tbody>#{table_rows.join}</tbody></table>"
+
+    placeholder = "{{STACK_PLACEHOLDER_#{placeholder_index}}}"
+    stack_map[placeholder_index] = html
+    placeholder_index += 1
+    placeholder
+  end
+
+  [processed_content, stack_map]
 end
 
 # Convert Markdown to plain text
@@ -2265,16 +2517,12 @@ if markdown_file
   # Process button tags in markdown (convert to markdown link syntax)
   processed_markdown = process_button_tags(processed_markdown, references)
 
+  # Process stack tags in markdown (convert to placeholders)
+  processed_markdown, stack_map = process_stack_tags(processed_markdown)
+
   # Convert Markdown to HTML
   processor = config.dig('markdown', 'processor') || 'apex'
   html_content = markdown_to_html(processed_markdown, processor)
-
-  # Upload local images to CDN if configured
-  cdn_config = config['cdn']
-  if cdn_config && cdn_config['url'] && cdn_config['type']
-    markdown_file_dir = File.dirname(File.expand_path(markdown_file))
-    html_content = upload_and_replace_images(html_content, cdn_config, markdown_file_dir)
-  end
 
   # Process greeting placeholders - convert greeting text to HTML (but don't apply styles yet)
   # We'll apply styles after all HTML is processed
@@ -2290,6 +2538,18 @@ if markdown_file
                                end
     # Replace placeholder with processed HTML (before styles are applied)
     html_content = html_content.gsub("{{GREETING_PLACEHOLDER_#{index}}}", greeting_html_map[index])
+  end
+
+  # Process stack placeholders - replace with HTML (before CDN upload so images can be uploaded)
+  stack_map.each do |index, stack_html|
+    html_content = html_content.gsub("{{STACK_PLACEHOLDER_#{index}}}", stack_html)
+  end
+
+  # Upload local images to CDN if configured (after stack placeholders are replaced)
+  cdn_config = config['cdn']
+  if cdn_config && cdn_config['url'] && cdn_config['type']
+    markdown_file_dir = File.dirname(File.expand_path(markdown_file))
+    html_content = upload_and_replace_images(html_content, cdn_config, markdown_file_dir)
   end
 
   # Determine if we should insert default greeting

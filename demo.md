@@ -23,4 +23,16 @@ You can have images automatically uploaded to a CDN when local file paths are de
 
 [![Uploaded](/Users/ttscoff/Desktop/FullDiskAccessScreenShot.png)](https://brettterpstra.com)
 
+Add sliced images with no spacing between them using the `stack` tag
+
+{% stack type="yaml" %}
+images:
+  - path: /Users/ttscoff/Desktop/sliced/slice1.png
+    url: https://brettterpstra.com/2026/01/16/marked-features-for-apex/
+  - path: /Users/ttscoff/Desktop/sliced/slice2.png
+    url: https://brettterpstra.com/2026/01/15/git-based-changelogs-for-rust-projects-and-more/
+  - path: /Users/ttscoff/Desktop/sliced/slice3.png
+    url: https://brettterpstra.com/2026/01/15/git-based-changelogs-for-rust-projects-and-more/
+{% endstack %}
+
 Signature lines are automatically added, you don't need to include a signoff in your Markdown.

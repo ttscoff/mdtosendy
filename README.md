@@ -542,6 +542,54 @@ a.btn.alt2 {
 }
 ```
 
+### Image Stack Tag
+
+The `{% stack %}` tag allows you to create a vertical stack of images with no spacing between them. Images are rendered full width of the content area, and each image can optionally have a link.
+
+**Markdown image syntax:**
+```markdown
+{% stack %}
+[![](/images/image1.png)](https://example.com/link1)
+[![](/images/image2.png)](https://example.com/link2)
+[![](/images/image3.png)](https://example.com/link3)
+{% endstack %}
+```
+
+You can also include images without links:
+```markdown
+{% stack %}
+[![](/images/image1.png)](https://example.com/link1)
+![](/images/image2.png)
+[![](/images/image3.png)](https://example.com/link2)
+{% endstack %}
+```
+
+**YAML syntax:**
+```markdown
+{% stack type="yaml" %}
+images:
+  - path: /images/image1.png
+    url: https://example.com/link1
+  - path: /images/image2.png
+    url: https://example.com/link2
+  - path: /images/image3.png
+{% endstack %}
+```
+
+In YAML format, the `url` field is optional. If omitted, the image will not have a link.
+
+**Features:**
+- Images are stacked vertically with zero spacing between them
+- All images are full width of the content area
+- Each image can optionally have a link
+- Local images in stacks are automatically uploaded to CDN if configured
+- Uses table-based layout for maximum email client compatibility
+
+**Notes:**
+- Stack images are automatically excluded from the standard image styling that wraps full-width images in tables
+- Images maintain their aspect ratio while being full width
+- The stack tag works with both local and remote image URLs
+
 ### Development Mode
 
 Generate a development preview file with linked CSS for easier styling:
