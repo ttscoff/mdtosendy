@@ -2316,7 +2316,7 @@ def parse_args
   flags = {
     validate: false,
     preview: false,
-    template: 'default',
+    template: nil,
     create_template: nil,
     parent: nil,
     dev: false,
@@ -2425,8 +2425,40 @@ if flags[:dev]
   exit 0
 end
 
-# Get template name
-template_name = flags[:template] || 'default'
+# Pre-read markdown file and YAML frontmatter (for template selection and config overrides)
+yaml_config = nil
+markdown_raw = nil
+markdown_content = nil
+
+if markdown_file
+  unless File.exist?(markdown_file)
+    warn "Error: File not found: #{markdown_file}"
+    exit 1
+  end
+
+  markdown_raw = File.read(markdown_file)
+  markdown_content = markdown_raw
+
+  if markdown_raw =~ /\A---\s*\n(.*?)\n---\s*\n(.*)\z/m
+    yaml_content = Regexp.last_match(1)
+    markdown_content = Regexp.last_match(2)
+    begin
+      yaml_config = YAML.safe_load(yaml_content)
+    rescue StandardError => e
+      warn "Warning: Could not parse YAML frontmatter: #{e.message}"
+    end
+  end
+end
+
+# Determine template name, allowing CLI to override frontmatter
+template_from_frontmatter = yaml_config.is_a?(Hash) ? yaml_config['template'] : nil
+template_name = if flags[:template]
+                  flags[:template]
+                elsif template_from_frontmatter && !template_from_frontmatter.to_s.strip.empty?
+                  template_from_frontmatter.to_s
+                else
+                  'default'
+                end
 
 # Load configuration and styles
 config = load_config(template_name)
@@ -2440,11 +2472,6 @@ end
 
 # If markdown file is provided, process it
 if markdown_file
-  unless File.exist?(markdown_file)
-    warn "Error: File not found: #{markdown_file}"
-    exit 1
-  end
-
   # Run validation if requested (but continue processing)
   if flags[:validate]
     success = run_validation(config, styles, template_name)
@@ -2474,22 +2501,8 @@ if markdown_file
 
   template = File.read(template_file)
 
-  # Read Markdown and check for YAML frontmatter
-  markdown_raw = File.read(markdown_file)
-  yaml_config = nil
-  markdown_content = markdown_raw
-
-  if markdown_raw =~ /\A---\s*\n(.*?)\n---\s*\n(.*)\z/m
-    yaml_content = Regexp.last_match(1)
-    markdown_content = Regexp.last_match(2)
-    begin
-      yaml_config = YAML.safe_load(yaml_content)
-      # Merge frontmatter into config (frontmatter takes precedence)
-      config = merge_frontmatter_config(config, yaml_config)
-    rescue StandardError => e
-      warn "Warning: Could not parse YAML frontmatter: #{e.message}"
-    end
-  end
+  # Merge frontmatter into config (frontmatter takes precedence) if present
+  config = merge_frontmatter_config(config, yaml_config) if yaml_config
 
   # Get default greeting from config (can be overridden by frontmatter)
   # Support both 'greeting' and 'salutation' keys, with 'salutation' taking precedence if both exist
