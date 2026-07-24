@@ -1,3 +1,19 @@
+#### CHANGED
+
+- **Webversion and unsubscribe tags** are output as styled anchor tags with [webversion]/[unsubscribe] hrefs for Sendy replacement
+- **Overwrite prompt** wording updated to reflect that the existing CDN URL will be used when declining
+
+#### NEW
+
+- Specify template for an email in YAML front matter, can be overridden on command line
+
+#### FIXED
+
+- **SCP/SFTP CDN uploads** no longer inherit S3 username/password (or subdirectory) from base config when a template switches upload type, preventing bogus SSH password prompts
+- **Declining CDN overwrite** now reuses the existing CDN URL instead of leaving a local file path in the output HTML
+- **Floated images** no longer forced to max-width: 30%; they keep max-width: 100% from the base img rule
+- **Footer links** now styled with .footer a selector, falling back to a when not defined
+
 #### FIXED
 
 - SCP/SFTP CDN templates no longer inherit S3 username/password from base config when switching upload type
