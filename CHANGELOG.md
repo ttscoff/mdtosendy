@@ -1,3 +1,9 @@
+#### FIXED
+
+- SCP/SFTP CDN templates no longer inherit S3 username/password from base config when switching upload type
+- Floated images no longer force max-width: 30%; they keep max-width: 100% from the base img rule
+- Declining CDN overwrite now reuses the existing CDN URL instead of leaving a local file path
+
 #### CHANGED
 
 - CDN configuration supports optional subdirectory, region, and ACL settings

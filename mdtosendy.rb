@@ -90,7 +90,7 @@ def prompt_overwrite(filename, remote_path)
   end
 
   print "File already exists on server: #{filename}\n"
-  print "If you choose not to overwrite, then a timestamp will be added to the filename to avoid conflicts.\n"
+  print "If you choose not to overwrite, the existing CDN URL will be used.\n"
   print "Overwrite? (Y/n): "
 
   if use_getch
@@ -107,6 +107,14 @@ def prompt_overwrite(filename, remote_path)
   end
 
   result
+end
+
+# Build the public CDN URL for a remote filename
+def build_cdn_url(cdn_config, remote_filename)
+  cdn_url = cdn_config['url'].chomp('/')
+  subdirectory = cdn_config['subdirectory'] || ''
+  subdir_path = subdirectory.empty? ? '' : "#{subdirectory}/"
+  "#{cdn_url}/#{subdir_path}#{remote_filename}"
 end
 
 # Check if file exists on S3
@@ -228,8 +236,8 @@ def upload_image_to_s3(local_path, cdn_config, markdown_file_dir)
       if overwrite_prompt
         # Prompt for confirmation
         unless prompt_overwrite(filename, remote_path)
-          puts "Skipping upload: #{filename}"
-          return nil
+          puts "Skipping upload (using existing): #{filename}"
+          return build_cdn_url(cdn_config, remote_filename)
         end
         # User confirmed, proceed with overwrite using original filename
       elsif overwrite_disabled
@@ -266,10 +274,7 @@ def upload_image_to_s3(local_path, cdn_config, markdown_file_dir)
     end
 
     # Construct CDN URL
-    cdn_url = cdn_config['url'].chomp('/')
-    final_url = "#{cdn_url}/#{remote_path}"
-
-    final_url
+    build_cdn_url(cdn_config, remote_filename)
   rescue StandardError => e
     warn "Error uploading to S3: #{e.message}"
     nil
@@ -382,8 +387,8 @@ def upload_image_via_scp(local_path, cdn_config, markdown_file_dir)
         if overwrite_prompt
           # Prompt for confirmation
           unless prompt_overwrite(filename, expanded_remote_path)
-            puts "Skipping upload: #{filename}"
-            return nil
+            puts "Skipping upload (using existing): #{filename}"
+            return build_cdn_url(cdn_config, remote_filename)
           end
           # User confirmed, proceed with overwrite using original filename
         elsif overwrite_disabled
@@ -420,9 +425,7 @@ def upload_image_via_scp(local_path, cdn_config, markdown_file_dir)
       end
     end
 
-    cdn_url = cdn_config['url'].chomp('/')
-    subdir_path = subdirectory.empty? ? '' : "#{subdirectory}/"
-    "#{cdn_url}/#{subdir_path}#{remote_filename}"
+    build_cdn_url(cdn_config, remote_filename)
   rescue NotImplementedError => e
     if e.message.include?('ed25519')
       warn 'Error: ed25519 SSH key support requires additional gems.'
@@ -546,8 +549,8 @@ def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
           if overwrite_prompt
             # Prompt for confirmation
             unless prompt_overwrite(filename, remote_path)
-              puts "Skipping upload: #{filename}"
-              return nil
+              puts "Skipping upload (using existing): #{filename}"
+              return build_cdn_url(cdn_config, remote_filename)
             end
             # User confirmed, proceed with overwrite using original filename
           elsif overwrite_disabled
@@ -572,9 +575,7 @@ def upload_image_via_sftp(local_path, cdn_config, markdown_file_dir)
       end
     end
 
-    cdn_url = cdn_config['url'].chomp('/')
-    subdir_path = subdirectory.empty? ? '' : "#{subdirectory}/"
-    "#{cdn_url}/#{subdir_path}#{remote_filename}"
+    build_cdn_url(cdn_config, remote_filename)
   rescue NotImplementedError => e
     if e.message.include?('ed25519')
       warn 'Error: ed25519 SSH key support requires additional gems.'
@@ -641,10 +642,10 @@ def upload_and_replace_images(html_content, cdn_config, markdown_file_dir)
 
     img['src'] = cdn_url
     uploaded_count += 1
-    puts "Uploaded image: #{src} -> #{cdn_url}"
+    puts "CDN image: #{src} -> #{cdn_url}"
   end
 
-  puts "Uploaded #{uploaded_count} image(s) to CDN" if uploaded_count > 0
+  puts "Resolved #{uploaded_count} image(s) to CDN URLs" if uploaded_count > 0
   doc.to_html
 end
 
@@ -902,8 +903,12 @@ def load_config(template_name = 'default')
   base_config = load_base_config
   template_config = load_template_config(template_name)
 
-  # Deep merge template config over base config
-  deep_merge(base_config, template_config)
+  merged = deep_merge(base_config, template_config)
+  if merged['cdn']
+    merged = merged.dup
+    merged['cdn'] = sanitize_merged_cdn_config(merged['cdn'], template_config['cdn'])
+  end
+  merged
 end
 
 # Find template file (HTML or CSS) with parent fallback
@@ -973,7 +978,7 @@ def markdown_to_html(markdown_content, processor = 'apex')
 end
 
 # Apply inline styles to HTML elements for email compatibility
-def apply_email_styles(html_content, styles)
+def apply_email_styles(html_content, styles, link_selector: 'a')
   doc = Nokogiri::HTML::DocumentFragment.parse(html_content)
 
   # Helper to merge styles
@@ -1240,7 +1245,8 @@ def apply_email_styles(html_content, styles)
   # Style regular link elements (not buttons or button variants)
   doc.css('a:not(.button):not(.btn):not(.secondary):not(.tertiary):not(.alt):not(.alt2)').each do |a|
     existing_style = a['style'] || ''
-    link_style = styles.style_string('a')
+    link_style = styles.style_string(link_selector)
+    link_style = styles.style_string('a') if link_style.empty? && link_selector != 'a'
     a['style'] = "#{existing_style}; #{link_style}".gsub(/^; /, '').gsub(/;\s*;/, ';')
   end
 
@@ -1273,7 +1279,7 @@ def apply_email_styles(html_content, styles)
 
       margin_style = float_direction == 'left' ? 'margin: 0 1em 1em 0;' : 'margin: 0 0 1em 1em;'
       table_html = <<~HTML
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="#{float_direction}" style="float: #{float_direction}; max-width: 30%; #{margin_style}">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="#{float_direction}" style="float: #{float_direction}; max-width: 100%; #{margin_style}">
           <tr>
             <td>
               #{img.to_html}
@@ -1815,6 +1821,33 @@ def deep_merge(base, override)
   result
 end
 
+# S3 and SSH CDN settings share key names (username, password, path).
+# When a template switches upload type, drop inherited keys from the other type
+# unless explicitly set in that template's cdn configuration.
+CDN_S3_ONLY_KEYS = %w[username password region acl].freeze
+CDN_SSH_ONLY_KEYS = %w[hostname port].freeze
+# Shared keys that are usually re-specified per upload type (path layout differs)
+CDN_TYPE_LAYOUT_KEYS = %w[subdirectory].freeze
+
+def sanitize_merged_cdn_config(merged_cdn, explicit_cdn)
+  return merged_cdn unless merged_cdn.is_a?(Hash) && !merged_cdn.empty?
+
+  result = merged_cdn.dup
+  explicit = explicit_cdn.is_a?(Hash) ? explicit_cdn : {}
+  type = result['type'].to_s.downcase
+
+  case type
+  when 's3'
+    CDN_SSH_ONLY_KEYS.each { |key| result.delete(key) unless explicit.key?(key) }
+  when 'scp', 'sftp'
+    CDN_S3_ONLY_KEYS.each { |key| result.delete(key) unless explicit.key?(key) }
+    # SCP/SFTP templates usually encode directory in path/url; don't inherit S3 subdirectory
+    CDN_TYPE_LAYOUT_KEYS.each { |key| result.delete(key) unless explicit.key?(key) }
+  end
+
+  result
+end
+
 # Map flat frontmatter keys to nested config structure
 # This allows users to use flat keys like 'header_image_url' instead of 'template.header_image_url'
 def map_flat_keys_to_config(frontmatter)
@@ -1885,8 +1918,12 @@ def merge_frontmatter_config(base_config, frontmatter)
   # Combine mapped flat keys and nested overrides
   frontmatter_override = deep_merge(mapped_flat, nested_override)
 
-  # Merge with base config
-  deep_merge(base_config, frontmatter_override)
+  merged = deep_merge(base_config, frontmatter_override)
+  if frontmatter_override['cdn'].is_a?(Hash)
+    merged = merged.dup
+    merged['cdn'] = sanitize_merged_cdn_config(merged['cdn'] || {}, frontmatter_override['cdn'])
+  end
+  merged
 end
 
 # Replace template variables
@@ -2673,21 +2710,24 @@ if markdown_file
     # Otherwise, treat as Markdown
     if footer_without_tags.strip =~ /^<[a-z]/i && footer_without_tags.strip =~ %r{</[a-z]>.*$}i
       # It's HTML, just apply styles
-      footer_html = apply_email_styles(footer_without_tags, styles)
+      footer_html = apply_email_styles(footer_without_tags, styles, link_selector: '.footer a')
     else
       # It's Markdown, convert to HTML then apply styles
       footer_markdown_html = markdown_to_html(footer_without_tags, processor)
-      footer_html = apply_email_styles(footer_markdown_html, styles)
+      footer_html = apply_email_styles(footer_markdown_html, styles, link_selector: '.footer a')
     end
 
-    # Restore webversion and unsubscribe tags using Nokogiri for reliable replacement
+    # Restore webversion and unsubscribe as styled anchor tags (Sendy replaces [webversion]/[unsubscribe] in href)
     if footer_html.include?('data-mdtosendy')
+      footer_link_style = styles.style_string('.footer a')
+      footer_link_style = styles.style_string('a') if footer_link_style.empty?
+      style_attr = footer_link_style.empty? ? '' : " style=\"#{footer_link_style}\""
       doc = Nokogiri::HTML::DocumentFragment.parse(footer_html)
       doc.css('span[data-mdtosendy="webversion"]').each do |span|
-        span.replace("<webversion>#{webversion_content}</webversion>")
+        span.replace("<a href=\"[webversion]\"#{style_attr}>#{webversion_content}</a>")
       end
       doc.css('span[data-mdtosendy="unsubscribe"]').each do |span|
-        span.replace("<unsubscribe>#{unsubscribe_content}</unsubscribe>")
+        span.replace("<a href=\"[unsubscribe]\"#{style_attr}>#{unsubscribe_content}</a>")
       end
       footer_html = doc.to_html
     end
