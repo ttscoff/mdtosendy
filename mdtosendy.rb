@@ -2467,44 +2467,13 @@ def resolve_markdown_files(args)
   files
 end
 
-# Main script
-if $PROGRAM_NAME == __FILE__
-parsed = parse_args
-flags = parsed[:flags]
-markdown_files = parsed[:markdown_files]
-markdown_file = markdown_files.first
-
-# Migrate old template files for backwards compatibility
-migrate_old_template_files
-
-# Ensure default template exists
-ensure_default_template_exists
-
-# Handle --create-template flag
-if flags[:create_template]
-  create_template(flags[:create_template], flags[:parent])
-  exit 0
-end
-
-# Handle --dev flag
-if flags[:dev]
-  generate_dev_file(flags[:template] || 'default')
-  exit 0
-end
-
-# Pre-read markdown file and YAML frontmatter (for template selection and config overrides)
-yaml_config = nil
-markdown_raw = nil
-markdown_content = nil
-
-if markdown_file
-  unless File.exist?(markdown_file)
-    warn "Error: File not found: #{markdown_file}"
-    exit 1
-  end
-
+# Process a single markdown file end-to-end: frontmatter, template selection,
+# conversion, HTML/TXT output, preview/test-send, and Sendy campaign creation.
+# File existence is already verified by resolve_markdown_files before this is called.
+def process_markdown_file(markdown_file, flags)
   markdown_raw = File.read(markdown_file)
   markdown_content = markdown_raw
+  yaml_config = nil
 
   if markdown_raw =~ /\A---\s*\n(.*?)\n---\s*\n(.*)\z/m
     yaml_content = Regexp.last_match(1)
@@ -2515,30 +2484,21 @@ if markdown_file
       warn "Warning: Could not parse YAML frontmatter: #{e.message}"
     end
   end
-end
 
-# Determine template name, allowing CLI to override frontmatter
-template_from_frontmatter = yaml_config.is_a?(Hash) ? yaml_config['template'] : nil
-template_name = if flags[:template]
-                  flags[:template]
-                elsif template_from_frontmatter && !template_from_frontmatter.to_s.strip.empty?
-                  template_from_frontmatter.to_s
-                else
-                  'default'
-                end
+  # Determine template name, allowing CLI to override frontmatter
+  template_from_frontmatter = yaml_config.is_a?(Hash) ? yaml_config['template'] : nil
+  template_name = if flags[:template]
+                    flags[:template]
+                  elsif template_from_frontmatter && !template_from_frontmatter.to_s.strip.empty?
+                    template_from_frontmatter.to_s
+                  else
+                    'default'
+                  end
 
-# Load configuration and styles
-config = load_config(template_name)
-styles = load_styles(template_name)
+  # Load configuration and styles
+  config = load_config(template_name)
+  styles = load_styles(template_name)
 
-# Run validation if requested
-if flags[:validate] && markdown_file.nil?
-  success = run_validation(config, styles, template_name)
-  exit(success ? 0 : 1)
-end
-
-# If markdown file is provided, process it
-if markdown_file
   # Run validation if requested (but continue processing)
   if flags[:validate]
     success = run_validation(config, styles, template_name)
@@ -2860,8 +2820,8 @@ if markdown_file
   # Preview if requested
   if flags[:preview]
     preview_html(html_file)
-    puts "\nPreview mode: Skipping Sendy campaign creation."
-    exit 0
+    puts "\nPreview mode: Skipping Sendy campaign creation for #{markdown_file}."
+    return
   end
 
   # Send test email if requested
@@ -2869,41 +2829,13 @@ if markdown_file
     subject = yaml_config && yaml_config['title'] ? yaml_config['title'] : 'Test Email'
     if send_test_email(flags[:test_send], subject, final_html, plain_text, config)
       puts "\nTest email mode: Skipping Sendy campaign creation."
-      exit 0
+      return
     else
       exit 1
     end
   end
-elsif ARGV.empty?
-  # Show usage if no arguments provided
-  puts "Usage: #{$0} [OPTIONS] <markdown_file> [markdown_file...]"
-  puts "\nOptions:"
-  puts '  --validate, -v           Validate configuration and styles without processing'
-  puts '  --preview, -p            Open generated HTML in browser after processing'
-  puts '  --template NAME, -t      Use template NAME (default: default)'
-  puts '  --create-template NAME, -c   Create a new template directory with default files'
-  puts '  --parent NAME             Use with --create-template to create a child template'
-  puts '  --help, -h                Show this help message'
-  puts "\nExamples:"
-  puts "  #{$0} email.md                           # Generate HTML and TXT files"
-  puts "  #{$0} a.md b.md                           # Process multiple markdown files"
-  puts "  #{$0} emails/*.md                         # Process files matching a glob"
-  puts "  #{$0} --validate                          # Validate configuration only"
-  puts "  #{$0} --preview email.md                  # Generate and preview in browser"
-  puts "  #{$0} --test-send test@example.com email.md  # Send test email directly"
-  puts "  #{$0} --template brettterpstra.com email.md  # Use specific template"
-  puts "  #{$0} --create-template mytemplate        # Create a new template"
-  puts "  #{$0} --create-template child --parent base  # Create child template"
-  puts "  #{$0} -v -p email.md                      # Validate, generate, and preview"
-  exit 0
-else
-  warn 'Error: Markdown file is required (unless using --validate only)'
-  warn 'Use --help for usage information'
-  exit 1
-end
 
-# Create Sendy campaign if YAML config has title (skip if preview mode or test-send mode)
-unless flags[:preview] || flags[:test_send]
+  # Create Sendy campaign if YAML config has title
   if yaml_config && yaml_config['title']
     sendy_config = config['sendy'] || {}
     email_config = config['email'] || {}
@@ -2943,7 +2875,7 @@ unless flags[:preview] || flags[:test_send]
       rescue StandardError => e
         warn "Warning: Could not parse publish_date: #{e.message}"
         puts 'No campaign created. Invalid publish_date format.'
-        exit 0
+        exit 1
       end
       params[:schedule_date_time] = publish_date.strftime('%B %d, %Y %I:%M%p')
       params[:schedule_timezone] = campaign_config['default_timezone'] || 'America/Chicago'
@@ -2977,8 +2909,76 @@ unless flags[:preview] || flags[:test_send]
       warn "Error creating campaign: #{res.code} #{res.message}"
       warn res.body if res.body
     end
-  elsif yaml_config.nil? || !yaml_config['title']
+  else
     puts "\nNo campaign created. To create a campaign, add a YAML header with `title` (and optionally `publish_date` or `status: draft`) to the Markdown file."
   end
+end
+
+# Main script
+if $PROGRAM_NAME == __FILE__
+parsed = parse_args
+flags = parsed[:flags]
+markdown_files = parsed[:markdown_files]
+
+# Migrate old template files for backwards compatibility
+migrate_old_template_files
+
+# Ensure default template exists
+ensure_default_template_exists
+
+# Handle --create-template flag
+if flags[:create_template]
+  create_template(flags[:create_template], flags[:parent])
+  exit 0
+end
+
+# Handle --dev flag
+if flags[:dev]
+  generate_dev_file(flags[:template] || 'default')
+  exit 0
+end
+
+# Validate-only mode (no markdown files given)
+if flags[:validate] && markdown_files.empty?
+  template_name = flags[:template] || 'default'
+  config = load_config(template_name)
+  styles = load_styles(template_name)
+  success = run_validation(config, styles, template_name)
+  exit(success ? 0 : 1)
+end
+
+if markdown_files.empty?
+  if ARGV.empty?
+    # Show usage if no arguments provided
+    puts "Usage: #{$0} [OPTIONS] <markdown_file> [markdown_file...]"
+    puts "\nOptions:"
+    puts '  --validate, -v           Validate configuration and styles without processing'
+    puts '  --preview, -p            Open generated HTML in browser after processing'
+    puts '  --template NAME, -t      Use template NAME (default: default)'
+    puts '  --create-template NAME, -c   Create a new template directory with default files'
+    puts '  --parent NAME             Use with --create-template to create a child template'
+    puts '  --help, -h                Show this help message'
+    puts "\nExamples:"
+    puts "  #{$0} email.md                           # Generate HTML and TXT files"
+    puts "  #{$0} a.md b.md                           # Process multiple markdown files"
+    puts "  #{$0} emails/*.md                         # Process files matching a glob"
+    puts "  #{$0} --validate                          # Validate configuration only"
+    puts "  #{$0} --preview email.md                  # Generate and preview in browser"
+    puts "  #{$0} --test-send test@example.com email.md  # Send test email directly"
+    puts "  #{$0} --template brettterpstra.com email.md  # Use specific template"
+    puts "  #{$0} --create-template mytemplate        # Create a new template"
+    puts "  #{$0} --create-template child --parent base  # Create child template"
+    puts "  #{$0} -v -p email.md                      # Validate, generate, and preview"
+    exit 0
+  else
+    warn 'Error: Markdown file is required (unless using --validate only)'
+    warn 'Use --help for usage information'
+    exit 1
+  end
+end
+
+markdown_files.each do |markdown_file|
+  puts "Processing: #{markdown_file}" if markdown_files.length > 1
+  process_markdown_file(markdown_file, flags)
 end
 end
