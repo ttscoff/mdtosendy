@@ -2,6 +2,7 @@
 
 require 'minitest/autorun'
 require 'tmpdir'
+require 'fileutils'
 require_relative '../mdtosendy'
 
 class ParseArgsMultiFileTest < Minitest::Test

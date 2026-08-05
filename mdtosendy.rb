@@ -2450,15 +2450,19 @@ def resolve_markdown_files(args)
   files = []
   args.each do |arg|
     if glob_pattern?(arg)
-      matches = Dir.glob(arg).sort
+      matches = Dir.glob(arg).sort.select { |f| File.file?(f) }
       if matches.empty?
         warn "Error: No files matched: #{arg}"
         exit 1
       end
       files.concat(matches)
     else
-      unless File.exist?(arg)
-        warn "Error: File not found: #{arg}"
+      unless File.file?(arg)
+        if File.exist?(arg)
+          warn "Error: Not a file: #{arg}"
+        else
+          warn "Error: File not found: #{arg}"
+        end
         exit 1
       end
       files << arg

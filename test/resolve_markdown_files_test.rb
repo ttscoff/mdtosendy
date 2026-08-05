@@ -48,4 +48,31 @@ class ResolveMarkdownFilesTest < Minitest::Test
     end
     assert_equal 1, err.status
   end
+
+  def test_directory_literal_exits
+    err = assert_raises(SystemExit) do
+      resolve_markdown_files([@dir])
+    end
+    assert_equal 1, err.status
+  end
+
+  def test_glob_excludes_directories
+    subdir = File.join(@dir, 'sub.md')
+    FileUtils.mkdir_p(subdir)
+    pattern = File.join(@dir, '*.md')
+    result = resolve_markdown_files([pattern])
+    assert_equal [@a, @b].sort, result
+  end
+
+  def test_glob_matching_only_directory_exits
+    dir_only = Dir.mktmpdir
+    subdir = File.join(dir_only, 'sub.md')
+    FileUtils.mkdir_p(subdir)
+    err = assert_raises(SystemExit) do
+      resolve_markdown_files([File.join(dir_only, '*.md')])
+    end
+    assert_equal 1, err.status
+  ensure
+    FileUtils.remove_entry(dir_only) if dir_only
+  end
 end
