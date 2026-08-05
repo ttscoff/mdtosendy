@@ -2439,7 +2439,33 @@ def parse_args
   { flags: flags, markdown_file: args.first }
 end
 
+def glob_pattern?(arg)
+  arg.match?(/[*?\[]/)
+end
+
+def resolve_markdown_files(args)
+  files = []
+  args.each do |arg|
+    if glob_pattern?(arg)
+      matches = Dir.glob(arg).sort
+      if matches.empty?
+        warn "Error: No files matched: #{arg}"
+        exit 1
+      end
+      files.concat(matches)
+    else
+      unless File.exist?(arg)
+        warn "Error: File not found: #{arg}"
+        exit 1
+      end
+      files << arg
+    end
+  end
+  files
+end
+
 # Main script
+if $PROGRAM_NAME == __FILE__
 parsed = parse_args
 flags = parsed[:flags]
 markdown_file = parsed[:markdown_file]
@@ -2948,4 +2974,5 @@ unless flags[:preview] || flags[:test_send]
   elsif yaml_config.nil? || !yaml_config['title']
     puts "\nNo campaign created. To create a campaign, add a YAML header with `title` (and optionally `publish_date` or `status: draft`) to the Markdown file."
   end
+end
 end
