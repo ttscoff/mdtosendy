@@ -220,6 +220,16 @@ mdtosendy --validate --preview your-email.md
 mdtosendy -v -p your-email.md
 ```
 
+### Multiple files
+
+Pass multiple Markdown files or a glob. Files are processed in order; shared flags apply to each. Processing stops on the first error.
+
+```bash
+mdtosendy a.md b.md
+mdtosendy emails/*.md
+mdtosendy -t marked --preview draft1.md draft2.md
+```
+
 **Show help:**
 ```bash
 mdtosendy --help

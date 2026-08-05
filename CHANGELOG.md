@@ -1,3 +1,12 @@
+#### NEW
+
+- Multiple Markdown file arguments and globs; files are processed in order with shared flags
+
+#### CHANGED
+
+- Preview and test-send modes run for each file in a multi-file invocation instead of exiting after the first
+- Invalid publish_date now exits with status 1 (was 0)
+
 #### CHANGED
 
 - **Webversion and unsubscribe tags** are output as styled anchor tags with [webversion]/[unsubscribe] hrefs for Sendy replacement
