@@ -2411,7 +2411,7 @@ def parse_args
         exit 1
       end
     when '--help', '-h'
-      puts "Usage: #{$0} [OPTIONS] <markdown_file>"
+      puts "Usage: #{$0} [OPTIONS] <markdown_file> [markdown_file...]"
       puts "\nOptions:"
       puts '  --validate, -v           Validate configuration and styles without processing'
       puts '  --preview, -p            Open generated HTML in browser after processing'
@@ -2423,6 +2423,8 @@ def parse_args
       puts '  --help, -h                Show this help message'
       puts "\nExamples:"
       puts "  #{$0} email.md                           # Generate HTML and TXT files"
+      puts "  #{$0} a.md b.md                           # Process multiple markdown files"
+      puts "  #{$0} emails/*.md                         # Process files matching a glob"
       puts "  #{$0} --validate                          # Validate configuration only"
       puts "  #{$0} --preview email.md                  # Generate and preview in browser"
       puts "  #{$0} --template brettterpstra.com email.md  # Use specific template"
@@ -2436,7 +2438,8 @@ def parse_args
     end
   end
 
-  { flags: flags, markdown_file: args.first }
+  markdown_files = args.empty? ? [] : resolve_markdown_files(args)
+  { flags: flags, markdown_files: markdown_files }
 end
 
 def glob_pattern?(arg)
@@ -2468,7 +2471,8 @@ end
 if $PROGRAM_NAME == __FILE__
 parsed = parse_args
 flags = parsed[:flags]
-markdown_file = parsed[:markdown_file]
+markdown_files = parsed[:markdown_files]
+markdown_file = markdown_files.first
 
 # Migrate old template files for backwards compatibility
 migrate_old_template_files
@@ -2872,7 +2876,7 @@ if markdown_file
   end
 elsif ARGV.empty?
   # Show usage if no arguments provided
-  puts "Usage: #{$0} [OPTIONS] <markdown_file>"
+  puts "Usage: #{$0} [OPTIONS] <markdown_file> [markdown_file...]"
   puts "\nOptions:"
   puts '  --validate, -v           Validate configuration and styles without processing'
   puts '  --preview, -p            Open generated HTML in browser after processing'
@@ -2882,6 +2886,8 @@ elsif ARGV.empty?
   puts '  --help, -h                Show this help message'
   puts "\nExamples:"
   puts "  #{$0} email.md                           # Generate HTML and TXT files"
+  puts "  #{$0} a.md b.md                           # Process multiple markdown files"
+  puts "  #{$0} emails/*.md                         # Process files matching a glob"
   puts "  #{$0} --validate                          # Validate configuration only"
   puts "  #{$0} --preview email.md                  # Generate and preview in browser"
   puts "  #{$0} --test-send test@example.com email.md  # Send test email directly"
