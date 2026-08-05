@@ -1,3 +1,10 @@
 tag_message.txt
 demo.html
 demo.txt
+.cursor
+.github/prompts
+.DS_Store
+buildnotes.md
+commit_message.txt
+docs
+*.code-workspace
