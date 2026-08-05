@@ -15,6 +15,19 @@ require 'fileutils'
 # Version
 VERSION = '1.0.10'
 
+# Parse YAML content; exit on syntax/parse errors (message includes line/column)
+def parse_yaml!(content, source:)
+  YAML.safe_load(content)
+rescue Psych::Exception => e
+  warn "Error: Invalid YAML in #{source}: #{e.message}"
+  exit 1
+end
+
+# Read and parse a YAML file; exit on syntax/parse errors
+def load_yaml_file!(path)
+  parse_yaml!(File.read(path), source: path)
+end
+
 # Simple CSS parser for converting CSS rules to inline styles
 # Handles basic selectors and properties for email styling
 class CSSParser
@@ -864,7 +877,7 @@ def load_template_config(template_name, visited = [])
 
   return {} unless File.exist?(template_config_file)
 
-  template_config = YAML.safe_load(File.read(template_config_file)) || {}
+  template_config = load_yaml_file!(template_config_file) || {}
 
   # If this template has a parent, load parent config first and merge
   if template_config['parent']
@@ -875,9 +888,6 @@ def load_template_config(template_name, visited = [])
   end
 
   template_config
-rescue StandardError => e
-  warn "Warning: Error loading template config from #{template_config_file}: #{e.message}"
-  {}
 end
 
 # Load base configuration from config.yml
@@ -891,10 +901,7 @@ def load_base_config
     exit 1
   end
 
-  YAML.safe_load(File.read(config_file)) || {}
-rescue StandardError => e
-  warn "Error loading configuration: #{e.message}"
-  exit 1
+  load_yaml_file!(config_file) || {}
 end
 
 # Load configuration, merging base config with template-specific config
@@ -925,12 +932,8 @@ def find_template_file(template_name, filename, visited = [])
   # Check parent template if file doesn't exist
   template_config_file = File.join(template_dir(template_name), 'config.yml')
   if File.exist?(template_config_file)
-    begin
-      template_config = YAML.safe_load(File.read(template_config_file)) || {}
-      return find_template_file(template_config['parent'], filename, visited) if template_config['parent']
-    rescue StandardError
-      # Ignore errors, just return nil
-    end
+    template_config = load_yaml_file!(template_config_file) || {}
+    return find_template_file(template_config['parent'], filename, visited) if template_config['parent']
   end
 
   nil
@@ -1487,7 +1490,7 @@ end
 #     - path: /images/image2.png
 #       url: https://example.com/link2
 #   {% endstack %}
-def process_stack_tags(markdown_content)
+def process_stack_tags(markdown_content, source: 'markdown')
   processed_content = markdown_content.dup
   stack_map = {}
   placeholder_index = 0
@@ -1504,17 +1507,13 @@ def process_stack_tags(markdown_content)
     images = []
     if is_yaml
       # Parse YAML content
-      begin
-        yaml_data = YAML.safe_load(content)
-        if yaml_data && yaml_data['images']
-          yaml_data['images'].each do |img|
-            path = img['path'] || img[:path]
-            url = img['url'] || img[:url]
-            images << { path: path, url: url }
-          end
+      yaml_data = parse_yaml!(content, source: "#{source} stack tag (type=yaml)")
+      if yaml_data && yaml_data['images']
+        yaml_data['images'].each do |img|
+          path = img['path'] || img[:path]
+          url = img['url'] || img[:url]
+          images << { path: path, url: url }
         end
-      rescue StandardError => e
-        warn "Warning: Could not parse YAML in stack tag: #{e.message}"
       end
     else
       # Parse markdown image links: [![](path)](url)
@@ -2003,15 +2002,11 @@ def find_dev_css_path(template_name)
   # Check if template has a parent
   template_config_file = File.join(template_dir(template_name), 'config.yml')
   if File.exist?(template_config_file)
-    begin
-      template_config = YAML.safe_load(File.read(template_config_file)) || {}
-      if template_config['parent']
-        parent_name = template_config['parent']
-        parent_css = File.join(template_dir(parent_name), 'styles.css')
-        return "templates/#{parent_name}/styles.css" if File.exist?(parent_css)
-      end
-    rescue StandardError
-      # Ignore errors
+    template_config = load_yaml_file!(template_config_file) || {}
+    if template_config['parent']
+      parent_name = template_config['parent']
+      parent_css = File.join(template_dir(parent_name), 'styles.css')
+      return "templates/#{parent_name}/styles.css" if File.exist?(parent_css)
     end
   end
 
@@ -2482,11 +2477,7 @@ def process_markdown_file(markdown_file, flags)
   if markdown_raw =~ /\A---\s*\n(.*?)\n---\s*\n(.*)\z/m
     yaml_content = Regexp.last_match(1)
     markdown_content = Regexp.last_match(2)
-    begin
-      yaml_config = YAML.safe_load(yaml_content)
-    rescue StandardError => e
-      warn "Warning: Could not parse YAML frontmatter: #{e.message}"
-    end
+    yaml_config = parse_yaml!(yaml_content, source: "#{markdown_file} (frontmatter)")
   end
 
   # Determine template name, allowing CLI to override frontmatter
@@ -2562,7 +2553,7 @@ def process_markdown_file(markdown_file, flags)
   processed_markdown = process_button_tags(processed_markdown, references)
 
   # Process stack tags in markdown (convert to placeholders)
-  processed_markdown, stack_map = process_stack_tags(processed_markdown)
+  processed_markdown, stack_map = process_stack_tags(processed_markdown, source: markdown_file)
 
   # Convert Markdown to HTML
   processor = config.dig('markdown', 'processor') || 'apex'

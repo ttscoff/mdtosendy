@@ -8,3 +8,4 @@ buildnotes.md
 commit_message.txt
 docs
 *.code-workspace
+.worktrees

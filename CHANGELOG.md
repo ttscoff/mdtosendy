@@ -1,3 +1,7 @@
+#### FIXED
+
+- **Invalid YAML** in frontmatter, stack tags, or config files now stops processing with exit status 1 (line/column still reported)
+
 #### NEW
 
 - Multiple Markdown file arguments and globs; files are processed in order with shared flags
