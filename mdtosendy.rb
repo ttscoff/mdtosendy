@@ -1214,13 +1214,18 @@ def apply_email_styles(html_content, styles, link_selector: 'a')
     span_selector = "#{button_selector} span"
     span_style = styles.style_string(span_selector)
 
+    # Honor width: 100% from CSS — the inner table must also be full-width,
+    # otherwise it shrink-wraps and the link's width: 100% only fills that cell.
+    button_width = styles.get_style(button_selector)['width']
+    full_width_attr = button_width == '100%' ? ' width="100%"' : ''
+
     button_html = <<~HTML
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
         <tr>
           <td align="center" style="padding: #{wrapper_padding};">
-            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0"#{full_width_attr}>
               <tr>
-                <td align="center" style="#{button_td_style_str};">
+                <td align="center"#{full_width_attr} style="#{button_td_style_str};">
                   <a href="#{escaped_href}" style="#{button_style};">
                     <span style="#{span_style};">
                       #{escaped_text}
